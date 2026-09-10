@@ -1,0 +1,589 @@
+{
+  "players": [
+    {
+      "id": 1,
+      "name": "Tomáš Kovář",
+      "position": "Pravý obránce",
+      "age": 21,
+      "club": "FK Ostrov Bytom",
+      "marketValue": 1.8,
+      "contractUntil": "Červen 2027",
+      "agent": "Sport Alliance Group",
+      "foot": "Pravá",
+      "height": "181 cm",
+      "minutesTracked": 1420,
+      "riskLevel": "low",
+      "scores": {
+        "pressing": 78,
+        "possession": 85,
+        "defensive": 77
+      },
+      "reason": {
+        "pressing": "silný v defenzivních soubojích a rychlosti přechodu do útoku",
+        "possession": "vyniká v xT a dlouhých přihrávkách",
+        "defensive": "nejvyšší hodnocení v soubojích ze všech kandidátů"
+      },
+      "styleContributions": {
+        "pressing": {
+          "xt": 4,
+          "duels": 8,
+          "transition": 5,
+          "crosses": 2,
+          "passing": 1,
+          "discipline": -1,
+          "setpieces": -3
+        },
+        "possession": {
+          "xt": 6,
+          "duels": 3,
+          "transition": 2,
+          "crosses": 7,
+          "passing": 8,
+          "discipline": -1,
+          "setpieces": -2
+        },
+        "defensive": {
+          "xt": 1,
+          "duels": 11,
+          "transition": 1,
+          "crosses": 0,
+          "passing": 1,
+          "discipline": 2,
+          "setpieces": -1
+        }
+      },
+      "breakdown": [
+        {
+          "id": "xt",
+          "label": "Expected Threat (xT) + Non-Shot xG",
+          "percentile": 85,
+          "tag": null,
+          "detail": "Kumulativní hodnota, o kolik hráč zvýšil gólovou hrozbu týmu jakoukoliv akcí — přihrávkou, vedením míče i náběhem bez míče — i když akce neskončila střelou. Licencovaná metrika (Vrstva A, Kapitola 12 PRD), ne interně počítaná od nuly."
+        },
+        {
+          "id": "duels",
+          "label": "Úspěšné defenzivní souboje",
+          "percentile": 82,
+          "tag": "Souboj",
+          "detail": "82. percentil v rámci hráčů stejné pozice a věku po zohlednění síly ligy (0.72) a possession-adjustmentu."
+        },
+        {
+          "id": "transition",
+          "label": "Rychlost přechodu do útoku",
+          "percentile": 88,
+          "tag": "Přechod",
+          "detail": "Nejsilnější metrika hráče — výrazně nad průměrem i po Bayesovském zmenšení kvůli 1420 sledovaným minutám."
+        },
+        {
+          "id": "crosses",
+          "label": "Přesnost centrů",
+          "percentile": 58,
+          "tag": "Centr",
+          "detail": "Mírně nad průměrem, ale s vysokou variancí mezi zápasy."
+        },
+        {
+          "id": "passing",
+          "label": "Úspěšnost dlouhých přihrávek",
+          "percentile": 61,
+          "tag": "Rozehrávka",
+          "detail": "Stabilní, blízko ligového průměru pro tuto pozici."
+        },
+        {
+          "id": "discipline",
+          "label": "Disciplína (karty)",
+          "percentile": 45,
+          "tag": null,
+          "detail": "Lehce podprůměrné, sledovat trend v posledních zápasech."
+        },
+        {
+          "id": "setpieces",
+          "label": "Standardní situace (obranné)",
+          "percentile": 34,
+          "tag": null,
+          "detail": "Nejslabší článek profilu — nízký percentil i po zohlednění malého vzorku standardek."
+        }
+      ],
+      "clips": [
+        {
+          "id": 1,
+          "title": "Defenzivní souboj — 34. min",
+          "tag": "Souboj",
+          "duration": "0:14"
+        },
+        {
+          "id": 2,
+          "title": "Centr do pokutového území",
+          "tag": "Centr",
+          "duration": "0:09"
+        },
+        {
+          "id": 3,
+          "title": "Rozehrávka pod tlakem",
+          "tag": "Rozehrávka",
+          "duration": "0:11"
+        },
+        {
+          "id": 4,
+          "title": "Sprint zpět do obrany",
+          "tag": "Přechod",
+          "duration": "0:08"
+        },
+        {
+          "id": 5,
+          "title": "Souboj vzduchem — roh soupeře",
+          "tag": "Souboj",
+          "duration": "0:07"
+        }
+      ],
+      "careerHistory": [
+        {
+          "id": 1,
+          "date": "2025",
+          "category": "transfer",
+          "label": "Přestup z FK Slezan do FK Ostrov Bytom"
+        },
+        {
+          "id": 2,
+          "date": "2024",
+          "category": "injury",
+          "label": "Natažený sval — 3 týdny mimo hru",
+          "days": 21
+        },
+        {
+          "id": 3,
+          "date": "2023",
+          "category": "milestone",
+          "label": "Postup do základní sestavy A-týmu"
+        },
+        {
+          "id": 4,
+          "date": "2022",
+          "category": "transfer",
+          "label": "Povýšení z mládežnické akademie do A-týmu"
+        },
+        {
+          "id": 5,
+          "date": "2021",
+          "category": "injury",
+          "label": "Zlomenina kotníku — 8 týdnů mimo hru",
+          "days": 56
+        }
+      ],
+      "marketHistory": [
+        {
+          "year": "2023",
+          "value": 0.6,
+          "low": 0.6,
+          "high": 0.6,
+          "projected": false
+        },
+        {
+          "year": "2024",
+          "value": 1.1,
+          "low": 1.1,
+          "high": 1.1,
+          "projected": false
+        },
+        {
+          "year": "2025",
+          "value": 1.5,
+          "low": 1.5,
+          "high": 1.5,
+          "projected": false
+        },
+        {
+          "year": "2026",
+          "value": 1.8,
+          "low": 1.8,
+          "high": 1.8,
+          "projected": false
+        },
+        {
+          "year": "2027",
+          "value": 2.3,
+          "low": 1.9,
+          "high": 2.7,
+          "projected": true
+        },
+        {
+          "year": "2028",
+          "value": 2.6,
+          "low": 1.8,
+          "high": 3.4,
+          "projected": true
+        }
+      ],
+      "scoreHistoryRatios": [
+        {
+          "month": "Bře 26",
+          "minutes": 320,
+          "low": 0.7,
+          "value": 0.82,
+          "high": 0.94
+        },
+        {
+          "month": "Dub 26",
+          "minutes": 620,
+          "low": 0.78,
+          "value": 0.89,
+          "high": 0.98
+        },
+        {
+          "month": "Kvě 26",
+          "minutes": 940,
+          "low": 0.86,
+          "value": 0.95,
+          "high": 1.02
+        },
+        {
+          "month": "Čvn 26",
+          "minutes": 1420,
+          "low": 0.95,
+          "value": 1,
+          "high": 1.03
+        }
+      ],
+      "matchPerformances": [
+        68,
+        79,
+        72,
+        41,
+        75,
+        70,
+        77,
+        66,
+        73,
+        35,
+        71,
+        74
+      ],
+      "clutchData": {
+        "closeStateScore": 76,
+        "decidedStateScore": 65,
+        "closeSample": 9,
+        "decidedSample": 15
+      },
+      "injuryRisk": {
+        "probability": 18,
+        "horizonMonths": 6,
+        "baseline": 5,
+        "factors": [
+          {
+            "id": "age",
+            "label": "Věk (21 let)",
+            "effect": -4,
+            "detail": "Nízký věk statisticky snižuje pravděpodobnost svalových zranění z dlouhodobého přetížení."
+          },
+          {
+            "id": "load",
+            "label": "Herní zátěž (1420 min za sezónu)",
+            "effect": 5,
+            "detail": "Nadprůměrná minutáž v posledních týdnech mírně zvyšuje riziko přetížení ve srovnání s pozicovým průměrem."
+          },
+          {
+            "id": "history",
+            "label": "Historie zranění (2 epizody, 77 dní mimo hru)",
+            "effect": 9,
+            "detail": "Opakované svalové zranění zvyšuje riziko recidivy podle historických dat srovnatelných případů."
+          },
+          {
+            "id": "type",
+            "label": "Typ posledního zranění (svalové)",
+            "effect": 3,
+            "detail": "Svalová zranění mají v referenční skupině vyšší míru recidivy než zlomeniny nebo distorze."
+          }
+        ]
+      },
+      "similarPlayersData": [
+        {
+          "id": 1,
+          "name": "Adam Ševčík",
+          "similarity": 91,
+          "priceDelta": "−0.4M €",
+          "age": 22,
+          "marketValue": "1.4M €",
+          "score": 71,
+          "risk": "medium",
+          "metrics": {
+            "xt": 70,
+            "duels": 75,
+            "transition": 80,
+            "crosses": 64,
+            "passing": 59,
+            "discipline": 50,
+            "setpieces": 40
+          }
+        },
+        {
+          "id": 2,
+          "name": "Marek Hruška",
+          "similarity": 86,
+          "priceDelta": "+0.6M €",
+          "age": 20,
+          "marketValue": "2.4M €",
+          "score": 78,
+          "risk": "low",
+          "metrics": {
+            "xt": 88,
+            "duels": 85,
+            "transition": 91,
+            "crosses": 70,
+            "passing": 68,
+            "discipline": 60,
+            "setpieces": 55
+          }
+        },
+        {
+          "id": 3,
+          "name": "Filip Dostál",
+          "similarity": 79,
+          "priceDelta": "−0.9M €",
+          "age": 23,
+          "marketValue": "0.9M €",
+          "score": 68,
+          "risk": "high",
+          "metrics": {
+            "xt": 60,
+            "duels": 70,
+            "transition": 78,
+            "crosses": 50,
+            "passing": 55,
+            "discipline": 35,
+            "setpieces": 30
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Adam Ševčík",
+      "position": "Pravý obránce",
+      "age": 22,
+      "club": "Slavoj Karviná",
+      "marketValue": 1.4,
+      "scores": {
+        "pressing": 71,
+        "possession": 68,
+        "defensive": 73
+      },
+      "reason": {
+        "pressing": "solidní ve všech kategoriích, žádná výrazná slabina",
+        "possession": "průměrný v progresivních akcích",
+        "defensive": "dobrá soubojovost, méně rizikový profil"
+      }
+    },
+    {
+      "id": 3,
+      "name": "Marek Hruška",
+      "position": "Levý obránce",
+      "age": 20,
+      "club": "FC Silesia",
+      "marketValue": 2.4,
+      "scores": {
+        "pressing": 82,
+        "possession": 88,
+        "defensive": 74
+      },
+      "reason": {
+        "pressing": "nejrychlejší přechod do útoku z celé skupiny",
+        "possession": "nejvyšší xT ze všech sledovaných obránců",
+        "defensive": "mírně slabší v defenzivních soubojích než specialisté"
+      }
+    },
+    {
+      "id": 4,
+      "name": "Filip Dostál",
+      "position": "Stoper",
+      "age": 23,
+      "club": "Baník Karviná B",
+      "marketValue": 0.9,
+      "scores": {
+        "pressing": 64,
+        "possession": 60,
+        "defensive": 79
+      },
+      "reason": {
+        "pressing": "spíš defenzivní typ, méně se zapojuje do přechodu",
+        "possession": "podprůměrný v rozehrávce pod tlakem",
+        "defensive": "velmi solidní v obranných soubojích za nízkou cenu"
+      }
+    },
+    {
+      "id": 5,
+      "name": "Jakub Malý",
+      "position": "Ofenzivní záložník",
+      "age": 24,
+      "club": "Widzew Łódź",
+      "marketValue": 2.1,
+      "scores": {
+        "pressing": 75,
+        "possession": 80,
+        "defensive": 55
+      },
+      "reason": {
+        "pressing": "aktivní v presinku, dobrý návrat do bloku",
+        "possession": "výborná kreativita a klíčové přihrávky",
+        "defensive": "slabý defenzivní přínos, čistě ofenzivní profil"
+      }
+    },
+    {
+      "id": 6,
+      "name": "David Novotný",
+      "position": "Útočník",
+      "age": 19,
+      "club": "Górnik Zabrze",
+      "marketValue": 1.1,
+      "scores": {
+        "pressing": 70,
+        "possession": 66,
+        "defensive": 48
+      },
+      "reason": {
+        "pressing": "vysoká intenzita presinku i v mladém věku",
+        "possession": "zatím nevyzrálý v kombinační hře",
+        "defensive": "očekávaně nízký defenzivní přínos u útočníka"
+      }
+    },
+    {
+      "id": 7,
+      "name": "Petr Vlček",
+      "position": "Brankář",
+      "age": 25,
+      "club": "Slavoj Karviná",
+      "marketValue": 0.6,
+      "scores": {
+        "pressing": 58,
+        "possession": 62,
+        "defensive": 60
+      },
+      "reason": {
+        "pressing": "dobrá hra nohama, zapojuje se do rozehrávky",
+        "possession": "solidní přesnost rozehrávky pod tlakem",
+        "defensive": "stabilní zákroky, žádná výrazná slabina"
+      }
+    }
+  ],
+  "reports": [
+    {
+      "id": 1,
+      "playerId": 1,
+      "author": "Petr Novák",
+      "date": "12. srpna 2026",
+      "match": "vs. Slavoj Karviná",
+      "recommendation": "Doporučit"
+    },
+    {
+      "id": 2,
+      "playerId": 1,
+      "author": "Jana Bartošová",
+      "date": "3. srpna 2026",
+      "match": "vs. FC Silesia",
+      "recommendation": "Sledovat dál"
+    }
+  ],
+  "matches": [
+    {
+      "id": 1,
+      "date": "6. zář 2026",
+      "fixture": "Slavoj Karviná – FK Ostrov Bytom",
+      "suggestedScout": "Petr Novák",
+      "reason": "Nejblíž a už sledoval soupeře",
+      "assignedScout": "Petr Novák"
+    },
+    {
+      "id": 2,
+      "date": "7. zář 2026",
+      "fixture": "Baník Karviná B – FC Silesia",
+      "suggestedScout": "Jana Bartošová",
+      "reason": "Specializace na středoevropský trh",
+      "assignedScout": "Jana Bartošová"
+    },
+    {
+      "id": 3,
+      "date": "9. zář 2026",
+      "fixture": "Widzew Łódź – Górnik Zabrze",
+      "suggestedScout": "Karel Ryba",
+      "reason": "Jazyková znalost, blízkost",
+      "assignedScout": "Karel Ryba"
+    }
+  ],
+  "events": [],
+  "coverage": {
+    "leagues": [
+      "1. liga ČR",
+      "2. liga ČR",
+      "Slovenská liga",
+      "Polská Ekstraklasa"
+    ],
+    "positions": [
+      "Brankáři",
+      "Obránci",
+      "Záložníci",
+      "Útočníci"
+    ],
+    "data": {
+      "1. liga ČR": {
+        "Brankáři": 78,
+        "Obránci": 85,
+        "Záložníci": 90,
+        "Útočníci": 82
+      },
+      "2. liga ČR": {
+        "Brankáři": 45,
+        "Obránci": 60,
+        "Záložníci": 55,
+        "Útočníci": 40
+      },
+      "Slovenská liga": {
+        "Brankáři": 20,
+        "Obránci": 35,
+        "Záložníci": 25,
+        "Útočníci": 15
+      },
+      "Polská Ekstraklasa": {
+        "Brankáři": 10,
+        "Obránci": 18,
+        "Záložníci": 22,
+        "Útočníci": 12
+      }
+    }
+  },
+  "shortlistStages": [
+    {
+      "stage": "Sledovaný",
+      "count": 14
+    },
+    {
+      "stage": "Hodnocený",
+      "count": 9
+    },
+    {
+      "stage": "Doporučený",
+      "count": 5
+    },
+    {
+      "stage": "V jednání",
+      "count": 2
+    },
+    {
+      "stage": "Uzavřeno",
+      "count": 3
+    }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "name": "Petr Novák",
+      "email": "petr@scoutos.cz",
+      "passwordHash": "$2b$10$SPEyoDpEpwR6y2hAVtw91u7t8tbA1m8Egt1GE0jkTwWC49x9YK.0a",
+      "role": "skaut"
+    },
+    {
+      "id": 2,
+      "name": "Jana Bartošová",
+      "email": "jana@scoutos.cz",
+      "passwordHash": "$2b$10$jnc1e7hAmINzFScuvXI2Yuh4OGR6i.GtALVRhADSxCWcXzxzWd65y",
+      "role": "head_of_scouting"
+    }
+  ]
+}
