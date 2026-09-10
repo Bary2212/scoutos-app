@@ -116,6 +116,12 @@ function categoryOf(position) {
   return "Útočníci";
 }
 
+// Pomocník: hráč je viditelný pro uživatele, pokud je to sdílený demo záznam
+// (bez ownerId — starší/ukázková data) nebo pokud ho vlastní přesně tenhle uživatel.
+function isVisibleToUser(player, userId) {
+  return !player.ownerId || player.ownerId === userId;
+}
+
 // GET /api/players?category=&maxAge=&maxBudget=&style=
 app.get("/api/players", async (req, res) => {
   try {
@@ -123,6 +129,7 @@ app.get("/api/players", async (req, res) => {
     const { category = "Vše", maxAge = 99, maxBudget = 999, style = "pressing" } = req.query;
 
     const results = db.players
+      .filter((p) => isVisibleToUser(p, req.user.id))
       .filter((p) => (category === "Vše" ? true : categoryOf(p.position) === category))
       .filter((p) => p.age <= Number(maxAge))
       .filter((p) => p.marketValue <= Number(maxBudget))
@@ -134,7 +141,7 @@ app.get("/api/players", async (req, res) => {
   }
 });
 
-// POST /api/players — vytvoří nového hráče se základními údaji.
+// POST /api/players — vytvoří nového hráče, přiřazeného přihlášenému uživateli.
 // Pokročilé analytické sekce (skóre, klipy, historie) zůstávají prázdné, dokud
 // se k hráči nepřidají reálná data — appka to zohledňuje v jednoduchém profilu.
 app.post("/api/players", async (req, res) => {
@@ -146,6 +153,7 @@ app.post("/api/players", async (req, res) => {
     const db = await readDb();
     const newPlayer = {
       id: db.players.length ? Math.max(...db.players.map((p) => p.id)) + 1 : 1,
+      ownerId: req.user.id,
       name,
       position,
       age: Number(age) || null,
@@ -172,12 +180,15 @@ app.post("/api/players", async (req, res) => {
   }
 });
 
-// PATCH /api/players/:id — SKUTEČNĚ upraví základní údaje hráče
+// PATCH /api/players/:id — SKUTEČNĚ upraví základní údaje hráče, jen pokud ho uživatel vlastní
 app.patch("/api/players/:id", async (req, res) => {
   try {
     const db = await readDb();
     const player = db.players.find((p) => p.id === Number(req.params.id));
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
+    if (player.ownerId && player.ownerId !== req.user.id) {
+      return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
+    }
 
     const editableFields = ["name", "position", "age", "club", "marketValue", "contractUntil", "agent", "foot", "height"];
     for (const field of editableFields) {
@@ -195,14 +206,17 @@ app.patch("/api/players/:id", async (req, res) => {
   }
 });
 
-// DELETE /api/players/:id — SKUTEČNĚ smaže hráče i jeho reporty
+// DELETE /api/players/:id — SKUTEČNĚ smaže hráče i jeho reporty, jen pokud ho uživatel vlastní
 app.delete("/api/players/:id", async (req, res) => {
   try {
     const db = await readDb();
     const playerId = Number(req.params.id);
-    const before = db.players.length;
+    const player = db.players.find((p) => p.id === playerId);
+    if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
+    if (player.ownerId && player.ownerId !== req.user.id) {
+      return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
+    }
     db.players = db.players.filter((p) => p.id !== playerId);
-    if (db.players.length === before) return res.status(404).json({ error: "Hráč nenalezen." });
     db.reports = db.reports.filter((r) => r.playerId !== playerId);
     await writeDb(db);
     res.json({ deleted: true });
@@ -211,23 +225,32 @@ app.delete("/api/players/:id", async (req, res) => {
   }
 });
 
-// GET /api/players/:id
+// GET /api/players/:id — jen pokud je hráč viditelný pro tohoto uživatele
 app.get("/api/players/:id", async (req, res) => {
   try {
     const db = await readDb();
     const player = db.players.find((p) => p.id === Number(req.params.id));
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
+    if (!isVisibleToUser(player, req.user.id)) {
+      return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
+    }
     res.json(player);
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst hráče.", detail: err.message });
   }
 });
 
-// GET /api/reports?playerId=
+// GET /api/reports?playerId= — jen pro hráče viditelné danému uživateli
 app.get("/api/reports", async (req, res) => {
   try {
     const db = await readDb();
     const { playerId } = req.query;
+    if (playerId) {
+      const player = db.players.find((p) => p.id === Number(playerId));
+      if (player && !isVisibleToUser(player, req.user.id)) {
+        return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
+      }
+    }
     const reports = playerId ? db.reports.filter((r) => r.playerId === Number(playerId)) : db.reports;
     res.json(reports);
   } catch (err) {
@@ -235,7 +258,7 @@ app.get("/api/reports", async (req, res) => {
   }
 });
 
-// POST /api/reports — skutečně ZAPISUJE nový report do databázového souboru
+// POST /api/reports — skutečně ZAPISUJE nový report, jen pokud uživatel vidí daného hráče
 app.post("/api/reports", async (req, res) => {
   try {
     const { playerId, author, match, recommendation } = req.body;
@@ -243,6 +266,11 @@ app.post("/api/reports", async (req, res) => {
       return res.status(400).json({ error: "Chybí povinná pole (playerId, author, recommendation)." });
     }
     const db = await readDb();
+    const player = db.players.find((p) => p.id === Number(playerId));
+    if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
+    if (!isVisibleToUser(player, req.user.id)) {
+      return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
+    }
     const newReport = {
       id: db.reports.length ? Math.max(...db.reports.map((r) => r.id)) + 1 : 1,
       playerId: Number(playerId),
