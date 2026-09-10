@@ -11,6 +11,7 @@ import {
   ServerCrash,
 } from "lucide-react";
 import { apiFetch } from "../api.js";
+import { useAuth } from "../AuthContext.jsx";
 
 
 // ---- Design tokens (stejné jako Player Profile, pro vizuální konzistenci napříč appkou) ----
@@ -107,6 +108,7 @@ function SectionLabel({ icon: Icon, children }) {
 // ---- Main component -----------------------------------------------------
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [conflicts, setConflicts] = useState(fallbackConflicts);
   const [matches, setMatches] = useState(fallbackMatches);
   const [backendConnected, setBackendConnected] = useState(null);
@@ -176,7 +178,7 @@ export default function Dashboard() {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 60px" }}>
         {/* ---------- Header ---------- */}
         <div style={{ marginBottom: 20 }}>
-          <h1 style={{ fontFamily: fontDisplay, fontSize: 24, fontWeight: 700, margin: 0 }}>Dobrý den, Jano</h1>
+          <h1 style={{ fontFamily: fontDisplay, fontSize: 24, fontWeight: 700, margin: 0 }}>Dobrý den, {user?.name?.split(" ")[0] || ""}</h1>
           <p style={{ fontSize: 13, color: C.inkFaint, marginTop: 4 }}>Úterý, 2. září 2026 — přehled skautské sítě</p>
         </div>
 
