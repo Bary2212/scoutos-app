@@ -11,6 +11,7 @@ import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
 import { readFile, writeFile } from "fs/promises";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -37,43 +38,115 @@ async function writeDb(db) {
 }
 
 function signToken(user) {
-  return jwt.sign({ id: user.id, name: user.name, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ id: user.id, name: user.name, email: user.email, role: user.role, isDemoTeam: !!user.isDemoTeam }, JWT_SECRET, { expiresIn: "7d" });
+}
+
+// ---------- E-MAIL — posílá se přes Gmail SMTP (nastavuje se v proměnných prostředí) ----------
+// Pokud EMAIL_USER / EMAIL_PASS nejsou nastavené (např. při lokálním vývoji), appka
+// e-mail jen vypíše do konzole místo skutečného odeslání — nic tím nespadne.
+const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+const transporter = emailConfigured
+  ? nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    })
+  : null;
+
+async function sendMail({ to, subject, html }) {
+  if (!transporter) {
+    console.log(`[e-mail NEODESLÁN — chybí EMAIL_USER/EMAIL_PASS] Pro: ${to} | Předmět: ${subject}\n${html}`);
+    return;
+  }
+  await transporter.sendMail({ from: `"ScoutOS" <${process.env.EMAIL_USER}>`, to, subject, html });
+}
+
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000)); // 6místný kód
 }
 
 // ---------- AUTH ROUTY — musí být definované PŘED ochranným middlewarem níže ----------
 
-// POST /api/auth/register — vytvoří nový účet se skutečně zahashovaným heslem
+// POST /api/auth/register — vytvoří nový (zatím neověřený) účet a pošle ověřovací kód e-mailem
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: "Chybí jméno, e-mail nebo heslo." });
+    const { firstName, lastName, email, password, passwordConfirm } = req.body;
+    if (!firstName || !lastName || !email || !password || !passwordConfirm) {
+      return res.status(400).json({ error: "Vyplň prosím všechna pole." });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: "Heslo musí mít alespoň 6 znaků." });
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Heslo musí mít alespoň 8 znaků." });
+    }
+    if (password !== passwordConfirm) {
+      return res.status(400).json({ error: "Hesla se neshodují." });
     }
     const db = await readDb();
     if (!db.users) db.users = [];
     if (db.users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
       return res.status(409).json({ error: "Účet s tímto e-mailem už existuje." });
     }
+
+    const verificationCode = generateCode();
     const newUser = {
       id: db.users.length ? Math.max(...db.users.map((u) => u.id)) + 1 : 1,
-      name,
+      firstName,
+      lastName,
+      name: `${firstName} ${lastName}`,
       email,
       passwordHash: bcrypt.hashSync(password, 10),
       role: "skaut",
+      verified: false,
+      verificationCode,
+      verificationExpires: Date.now() + 24 * 60 * 60 * 1000, // 24 hodin
     };
     db.users.push(newUser);
     await writeDb(db);
-    const token = signToken(newUser);
-    res.status(201).json({ token, user: { id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role } });
+
+    try {
+      await sendMail({
+        to: email,
+        subject: "Potvrzení účtu ScoutOS",
+        html: `
+          <p>Ahoj ${firstName},</p>
+          <p>děkujeme za registraci do ScoutOS. Tvůj přihlašovací e-mail je <strong>${email}</strong>.</p>
+          <p>Tvůj ověřovací kód je: <strong style="font-size:20px">${verificationCode}</strong></p>
+          <p>Kód zadej v appce, abychom si ověřili, že e-mail je opravdu tvůj. Platí 24 hodin.</p>
+        `,
+      });
+    } catch (mailErr) {
+      console.error("Nepodařilo se odeslat ověřovací e-mail:", mailErr.message);
+    }
+
+    res.status(201).json({ message: "Účet vytvořen. Zkontroluj e-mail a zadej ověřovací kód.", email });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se vytvořit účet.", detail: err.message });
   }
 });
 
-// POST /api/auth/login — ověří heslo proti hashi, vrátí token
+// POST /api/auth/verify — potvrdí e-mail kódem a rovnou přihlásí
+app.post("/api/auth/verify", async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) return res.status(400).json({ error: "Chybí e-mail nebo kód." });
+    const db = await readDb();
+    const user = (db.users || []).find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) return res.status(404).json({ error: "Účet nenalezen." });
+    if (user.verified) return res.status(400).json({ error: "Účet už je ověřený, můžeš se rovnou přihlásit." });
+    if (user.verificationCode !== code) return res.status(400).json({ error: "Nesprávný kód." });
+    if (Date.now() > user.verificationExpires) return res.status(400).json({ error: "Platnost kódu vypršela, zkus registraci znovu." });
+
+    user.verified = true;
+    delete user.verificationCode;
+    delete user.verificationExpires;
+    await writeDb(db);
+
+    const token = signToken(user);
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, isDemoTeam: !!user.isDemoTeam } });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se ověřit účet.", detail: err.message });
+  }
+});
+
+// POST /api/auth/login — ověří heslo proti hashi, vrátí token (jen pro ověřené účty)
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -85,8 +158,11 @@ app.post("/api/auth/login", async (req, res) => {
     if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
       return res.status(401).json({ error: "Nesprávný e-mail nebo heslo." });
     }
+    if (!user.verified) {
+      return res.status(403).json({ error: "Účet ještě není ověřený. Zkontroluj e-mail a zadej ověřovací kód.", needsVerification: true, email: user.email });
+    }
     const token = signToken(user);
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, isDemoTeam: !!user.isDemoTeam } });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se přihlásit.", detail: err.message });
   }
@@ -116,10 +192,13 @@ function categoryOf(position) {
   return "Útočníci";
 }
 
-// Pomocník: hráč je viditelný pro uživatele, pokud je to sdílený demo záznam
-// (bez ownerId — starší/ukázková data) nebo pokud ho vlastní přesně tenhle uživatel.
-function isVisibleToUser(player, userId) {
-  return !player.ownerId || player.ownerId === userId;
+// Pomocník: hráč je viditelný pro uživatele, pokud ho přímo vlastní, nebo pokud
+// jde o sdílená demo data A přihlášený uživatel patří do demo týmu.
+// Nový, skutečně registrovaný zákazník sdílená demo data VŮBEC nevidí — má čistý start.
+function isVisibleToUser(player, user) {
+  if (player.ownerId === user.id) return true;
+  if (player.isSharedDemo && user.isDemoTeam) return true;
+  return false;
 }
 
 // GET /api/players?category=&maxAge=&maxBudget=&style=
@@ -129,7 +208,7 @@ app.get("/api/players", async (req, res) => {
     const { category = "Vše", maxAge = 99, maxBudget = 999, style = "pressing" } = req.query;
 
     const results = db.players
-      .filter((p) => isVisibleToUser(p, req.user.id))
+      .filter((p) => isVisibleToUser(p, req.user))
       .filter((p) => (category === "Vše" ? true : categoryOf(p.position) === category))
       .filter((p) => p.age <= Number(maxAge))
       .filter((p) => p.marketValue <= Number(maxBudget))
@@ -186,7 +265,7 @@ app.patch("/api/players/:id", async (req, res) => {
     const db = await readDb();
     const player = db.players.find((p) => p.id === Number(req.params.id));
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
-    if (player.ownerId && player.ownerId !== req.user.id) {
+    if (!isVisibleToUser(player, req.user) || (!player.ownerId && !req.user.isDemoTeam)) {
       return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
     }
 
@@ -213,7 +292,7 @@ app.delete("/api/players/:id", async (req, res) => {
     const playerId = Number(req.params.id);
     const player = db.players.find((p) => p.id === playerId);
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
-    if (player.ownerId && player.ownerId !== req.user.id) {
+    if (!isVisibleToUser(player, req.user) || (!player.ownerId && !req.user.isDemoTeam)) {
       return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
     }
     db.players = db.players.filter((p) => p.id !== playerId);
@@ -231,7 +310,7 @@ app.get("/api/players/:id", async (req, res) => {
     const db = await readDb();
     const player = db.players.find((p) => p.id === Number(req.params.id));
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
-    if (!isVisibleToUser(player, req.user.id)) {
+    if (!isVisibleToUser(player, req.user)) {
       return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
     }
     res.json(player);
@@ -247,7 +326,7 @@ app.get("/api/reports", async (req, res) => {
     const { playerId } = req.query;
     if (playerId) {
       const player = db.players.find((p) => p.id === Number(playerId));
-      if (player && !isVisibleToUser(player, req.user.id)) {
+      if (player && !isVisibleToUser(player, req.user)) {
         return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
       }
     }
@@ -268,7 +347,7 @@ app.post("/api/reports", async (req, res) => {
     const db = await readDb();
     const player = db.players.find((p) => p.id === Number(playerId));
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
-    if (!isVisibleToUser(player, req.user.id)) {
+    if (!isVisibleToUser(player, req.user)) {
       return res.status(403).json({ error: "Tento hráč patří jinému uživateli." });
     }
     const newReport = {
@@ -289,11 +368,16 @@ app.post("/api/reports", async (req, res) => {
 
 // GET /api/conflicts — DOPOČÍTANÉ za běhu z reportů, ne uložené natvrdo.
 // Konflikt = hráč, u kterého existují alespoň 2 reporty s různým doporučením.
+// Počítá se jen z hráčů viditelných danému uživateli (jeho vlastní + sdílené demo).
 app.get("/api/conflicts", async (req, res) => {
   try {
     const db = await readDb();
+    const visiblePlayerIds = new Set(
+      db.players.filter((p) => isVisibleToUser(p, req.user)).map((p) => p.id)
+    );
     const byPlayer = {};
     for (const r of db.reports) {
+      if (!visiblePlayerIds.has(r.playerId)) continue;
       if (!byPlayer[r.playerId]) byPlayer[r.playerId] = [];
       byPlayer[r.playerId].push(r);
     }
@@ -314,11 +398,11 @@ app.get("/api/conflicts", async (req, res) => {
   }
 });
 
-// GET /api/matches
+// GET /api/matches — plánované zápasy jsou zatím jen u demo týmu (ukázka)
 app.get("/api/matches", async (req, res) => {
   try {
     const db = await readDb();
-    res.json(db.matches);
+    res.json(req.user.isDemoTeam ? db.matches : []);
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst zápasy.", detail: err.message });
   }
@@ -393,17 +477,18 @@ app.delete("/api/events/:id", async (req, res) => {
 app.get("/api/coverage", async (req, res) => {
   try {
     const db = await readDb();
-    res.json(db.coverage);
+    if (req.user.isDemoTeam) return res.json(db.coverage);
+    res.json({ leagues: [], positions: [], data: {} });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst mapu pokrytí.", detail: err.message });
   }
 });
 
-// GET /api/shortlist-stages — přehled shortlist podle stavu
+// GET /api/shortlist-stages — přehled shortlist podle stavu (zatím jen demo tým)
 app.get("/api/shortlist-stages", async (req, res) => {
   try {
     const db = await readDb();
-    res.json(db.shortlistStages);
+    res.json(req.user.isDemoTeam ? db.shortlistStages : []);
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst shortlisty.", detail: err.message });
   }
