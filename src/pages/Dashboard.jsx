@@ -119,6 +119,7 @@ export default function Dashboard() {
   const [positions, setPositions] = useState(fallbackPositions);
   const [coverage, setCoverage] = useState(fallbackCoverageData);
   const [shortlistStages, setShortlistStages] = useState(fallbackShortlistStages);
+  const [playerCount, setPlayerCount] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -138,14 +139,19 @@ export default function Dashboard() {
         if (!r.ok) throw new Error();
         return r.json();
       }),
+      apiFetch(`/api/players`).then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      }),
     ])
-      .then(([conflictsData, matchesData, coverageData, stagesData]) => {
+      .then(([conflictsData, matchesData, coverageData, stagesData, playersData]) => {
         setConflicts(conflictsData);
         setMatches(matchesData);
         setLeagues(coverageData.leagues);
         setPositions(coverageData.positions);
         setCoverage(coverageData.data);
         setShortlistStages(stagesData);
+        setPlayerCount(playersData.length);
         setBackendConnected(true);
       })
       .catch(() => setBackendConnected(false));
@@ -171,7 +177,7 @@ export default function Dashboard() {
   const activeConflicts = conflicts.filter((c) => !resolvedIds.has(c.playerId));
   const blindSpots = leagues.flatMap((l) => positions.filter((p) => coverage[l][p] < 25).map((p) => `${l} – ${p}`));
 
-  const selectedPct = coverage[selectedCell.league][selectedCell.position];
+  const selectedPct = coverage[selectedCell.league]?.[selectedCell.position];
 
   return (
     <div style={{ background: C.bg, minHeight: "calc(100vh - 56px)", fontFamily: fontBody, color: C.ink }}>
@@ -184,9 +190,13 @@ export default function Dashboard() {
 
         {/* ---------- Stat cards ---------- */}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
-          <StatCard label="Hráčů na aktivních shortlistách" value={33} />
+          <StatCard label="Hráčů v tvé databázi" value={playerCount ?? "…"} />
           <StatCard label="Otevřené rozpory" value={activeConflicts.length} color={activeConflicts.length > 0 ? C.amber : C.turf} sub="vyžadují rozhodnutí" />
-          <StatCard label="Skauti v terénu tento týden" value="5 / 8" />
+          {user?.isDemoTeam ? (
+            <StatCard label="Skauti v terénu tento týden" value="5 / 8" />
+          ) : (
+            <StatCard label="Skauti v týmu" value="1" sub="pozvi kolegy (připravujeme)" />
+          )}
           <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub="liga × pozice pod 25 %" />
         </div>
 
@@ -196,61 +206,71 @@ export default function Dashboard() {
             {/* Coverage map */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22, marginBottom: 20 }}>
               <SectionLabel icon={Map}>Mapa pokrytí (liga × pozice)</SectionLabel>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: "left", padding: "6px 8px", color: C.inkFaint, fontWeight: 500 }}></th>
-                      {positions.map((p) => (
-                        <th key={p} style={{ textAlign: "center", padding: "6px 8px", color: C.inkFaint, fontWeight: 500 }}>
-                          {p}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leagues.map((l) => (
-                      <tr key={l}>
-                        <td style={{ padding: "6px 8px", color: C.inkSoft, whiteSpace: "nowrap" }}>{l}</td>
-                        {positions.map((p) => {
-                          const pct = coverage[l][p];
-                          const style = coverageColor(pct);
-                          const isSelected = selectedCell.league === l && selectedCell.position === p;
-                          return (
-                            <td key={p} style={{ padding: 4, textAlign: "center" }}>
-                              <button
-                                onClick={() => setSelectedCell({ league: l, position: p })}
-                                style={{
-                                  width: 52,
-                                  height: 32,
-                                  border: isSelected ? `2px solid ${C.ink}` : "2px solid transparent",
-                                  borderRadius: 4,
-                                  background: style.bg,
-                                  color: style.text,
-                                  fontFamily: fontMono,
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                {pct}%
-                              </button>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ marginTop: 14, padding: "10px 14px", background: C.lineSoft, borderRadius: 6, fontSize: 12, color: C.inkSoft }}>
-                <strong style={{ color: C.ink }}>{selectedCell.league} — {selectedCell.position}:</strong> {selectedPct}% pokrytí.{" "}
-                {selectedPct < 25
-                  ? "Slepé místo — zvaž přiřazení skauta na nejbližší zápasy v této kategorii."
-                  : selectedPct < 65
-                  ? "Střední pokrytí — sledovat, ale není to kritické."
-                  : "Dobře pokryto."}
-              </div>
+              {leagues.length === 0 ? (
+                <div style={{ padding: "24px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
+                  Zatím nemáš žádná data o pokrytí lig — objeví se, jakmile s týmem začnete sledovat zápasy napříč soutěžemi.
+                </div>
+              ) : (
+                <>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ textAlign: "left", padding: "6px 8px", color: C.inkFaint, fontWeight: 500 }}></th>
+                          {positions.map((p) => (
+                            <th key={p} style={{ textAlign: "center", padding: "6px 8px", color: C.inkFaint, fontWeight: 500 }}>
+                              {p}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {leagues.map((l) => (
+                          <tr key={l}>
+                            <td style={{ padding: "6px 8px", color: C.inkSoft, whiteSpace: "nowrap" }}>{l}</td>
+                            {positions.map((p) => {
+                              const pct = coverage[l][p];
+                              const style = coverageColor(pct);
+                              const isSelected = selectedCell.league === l && selectedCell.position === p;
+                              return (
+                                <td key={p} style={{ padding: 4, textAlign: "center" }}>
+                                  <button
+                                    onClick={() => setSelectedCell({ league: l, position: p })}
+                                    style={{
+                                      width: 52,
+                                      height: 32,
+                                      border: isSelected ? `2px solid ${C.ink}` : "2px solid transparent",
+                                      borderRadius: 4,
+                                      background: style.bg,
+                                      color: style.text,
+                                      fontFamily: fontMono,
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {pct}%
+                                  </button>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {selectedPct !== undefined && (
+                    <div style={{ marginTop: 14, padding: "10px 14px", background: C.lineSoft, borderRadius: 6, fontSize: 12, color: C.inkSoft }}>
+                      <strong style={{ color: C.ink }}>{selectedCell.league} — {selectedCell.position}:</strong> {selectedPct}% pokrytí.{" "}
+                      {selectedPct < 25
+                        ? "Slepé místo — zvaž přiřazení skauta na nejbližší zápasy v této kategorii."
+                        : selectedPct < 65
+                        ? "Střední pokrytí — sledovat, ale není to kritické."
+                        : "Dobře pokryto."}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Conflicts */}
@@ -325,55 +345,67 @@ export default function Dashboard() {
             {/* Upcoming matches */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22, marginBottom: 20 }}>
               <SectionLabel icon={CalendarDays}>Nadcházející zápasy — koho poslat</SectionLabel>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {matches.map((m) => {
-                  const overridden = m.assignedScout !== m.suggestedScout;
-                  return (
-                    <div key={m.id} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "12px 14px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{m.fixture}</div>
-                      <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>{m.date}</div>
-                      <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 6, fontStyle: "italic" }}>
-                        Návrh: {m.suggestedScout} — {m.reason}
+              {matches.length === 0 ? (
+                <div style={{ padding: "16px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
+                  Zatím nemáš naplánované žádné zápasy ke sledování.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {matches.map((m) => {
+                    const overridden = m.assignedScout !== m.suggestedScout;
+                    return (
+                      <div key={m.id} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "12px 14px" }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{m.fixture}</div>
+                        <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>{m.date}</div>
+                        <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 6, fontStyle: "italic" }}>
+                          Návrh: {m.suggestedScout} — {m.reason}
+                        </div>
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                          <Users size={13} color={C.inkFaint} />
+                          <select
+                            value={m.assignedScout}
+                            onChange={(e) => assignScout(m.id, e.target.value)}
+                            style={{ fontSize: 12, padding: "5px 8px", border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, background: overridden ? C.amberSoft : "#fff" }}
+                          >
+                            {scouts.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                          {overridden && <span style={{ fontSize: 10, color: C.amber, fontWeight: 600 }}>upraveno</span>}
+                          {savingId === m.id && <span style={{ fontSize: 10, color: C.inkFaint }}>ukládám…</span>}
+                        </div>
                       </div>
-                      <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                        <Users size={13} color={C.inkFaint} />
-                        <select
-                          value={m.assignedScout}
-                          onChange={(e) => assignScout(m.id, e.target.value)}
-                          style={{ fontSize: 12, padding: "5px 8px", border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, background: overridden ? C.amberSoft : "#fff" }}
-                        >
-                          {scouts.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
-                        {overridden && <span style={{ fontSize: 10, color: C.amber, fontWeight: 600 }}>upraveno</span>}
-                        {savingId === m.id && <span style={{ fontSize: 10, color: C.inkFaint }}>ukládám…</span>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Shortlist funnel */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22 }}>
               <SectionLabel icon={ListChecks}>Shortlisty podle stavu</SectionLabel>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {shortlistStages.map((s) => {
-                  const max = Math.max(...shortlistStages.map((x) => x.count));
-                  return (
-                    <div key={s.stage}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.inkSoft, marginBottom: 3 }}>
-                        <span>{s.stage}</span>
-                        <span style={{ fontFamily: fontMono, fontWeight: 600, color: C.ink }}>{s.count}</span>
+              {shortlistStages.length === 0 ? (
+                <div style={{ padding: "16px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
+                  Zatím nemáš žádné shortlisty — přidej hráče a začni je sledovat.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {shortlistStages.map((s) => {
+                    const max = Math.max(...shortlistStages.map((x) => x.count));
+                    return (
+                      <div key={s.stage}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.inkSoft, marginBottom: 3 }}>
+                          <span>{s.stage}</span>
+                          <span style={{ fontFamily: fontMono, fontWeight: 600, color: C.ink }}>{s.count}</span>
+                        </div>
+                        <div style={{ height: 6, background: C.lineSoft, borderRadius: 3 }}>
+                          <div style={{ width: `${(s.count / max) * 100}%`, height: "100%", borderRadius: 3, background: C.turf }} />
+                        </div>
                       </div>
-                      <div style={{ height: 6, background: C.lineSoft, borderRadius: 3 }}>
-                        <div style={{ width: `${(s.count / max) * 100}%`, height: "100%", borderRadius: 3, background: C.turf }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
