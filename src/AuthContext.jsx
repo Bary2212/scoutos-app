@@ -13,20 +13,44 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ email: email.trim(), password }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Přihlášení se nezdařilo.");
+    if (!res.ok) {
+      const err = new Error(data.error || "Přihlášení se nezdařilo.");
+      err.needsVerification = data.needsVerification;
+      err.email = data.email;
+      throw err;
+    }
     setSession(data.token, data.user);
     setUser(data.user);
     return data.user;
   };
 
-  const register = async (name, email, password) => {
+  // Registrace teď NEVRACÍ rovnou token — účet musí být nejdřív ověřený kódem z e-mailu.
+  const register = async (firstName, lastName, email, password, passwordConfirm) => {
     const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
+      body: JSON.stringify({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        password,
+        passwordConfirm,
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Registrace se nezdařila.");
+    return data; // { message, email }
+  };
+
+  // Potvrzení ověřovacího kódu — teprve tohle appku skutečně přihlásí.
+  const verify = async (email, code) => {
+    const res = await fetch(`${API_BASE}/api/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), code: code.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Ověření se nezdařilo.");
     setSession(data.token, data.user);
     setUser(data.user);
     return data.user;
@@ -37,7 +61,7 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  return <AuthContext.Provider value={{ user, login, register, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, login, register, verify, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
