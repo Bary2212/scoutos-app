@@ -4,6 +4,7 @@ import { Shield, LogOut } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import PlayerProfile from "./pages/PlayerProfile.jsx";
+import PlayerStatsForm from "./pages/PlayerStatsForm.jsx";
 import PlayerProfileBasic from "./pages/PlayerProfileBasic.jsx";
 import PlayerSearch from "./pages/PlayerSearch.jsx";
 import LiveTagging from "./pages/LiveTagging.jsx";
@@ -104,6 +105,7 @@ function AppRoutes() {
       <Route path="/pridat-hrace" element={<ProtectedRoute><AddPlayer /></ProtectedRoute>} />
       <Route path="/hrac-basic/:id" element={<ProtectedRoute><PlayerProfileBasic /></ProtectedRoute>} />
       <Route path="/hrac/:id" element={<ProtectedRoute><PlayerProfile /></ProtectedRoute>} />
+      <Route path="/hrac/:id/statistiky" element={<ProtectedRoute><PlayerStatsForm /></ProtectedRoute>} />
       <Route path="/tagovani" element={<ProtectedRoute><LiveTagging /></ProtectedRoute>} />
     </Routes>
   );
