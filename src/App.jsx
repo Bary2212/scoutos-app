@@ -14,7 +14,7 @@ const NAV = [
   { to: "/", label: "Dashboard" },
   { to: "/hledani", label: "Vyhledávání" },
   { to: "/pridat-hrace", label: "+ Přidat hráče" },
-  { to: "/hrac", label: "Player Profile (demo)" },
+  { to: "/hrac/1", label: "Player Profile (demo)" },
   { to: "/tagovani", label: "Live Tagging" },
 ];
 
@@ -103,7 +103,7 @@ function AppRoutes() {
       <Route path="/hledani" element={<ProtectedRoute><PlayerSearch /></ProtectedRoute>} />
       <Route path="/pridat-hrace" element={<ProtectedRoute><AddPlayer /></ProtectedRoute>} />
       <Route path="/hrac-basic/:id" element={<ProtectedRoute><PlayerProfileBasic /></ProtectedRoute>} />
-      <Route path="/hrac" element={<ProtectedRoute><PlayerProfile /></ProtectedRoute>} />
+      <Route path="/hrac/:id" element={<ProtectedRoute><PlayerProfile /></ProtectedRoute>} />
       <Route path="/tagovani" element={<ProtectedRoute><LiveTagging /></ProtectedRoute>} />
     </Routes>
   );
