@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   Star,
   FileDown,
   UserPlus,
   Play,
   ChevronDown,
+  ChevronLeft,
   ShieldCheck,
   Info,
   ArrowUpRight,
@@ -18,10 +20,26 @@ import {
   Loader2,
   Send,
   Trash2,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { apiFetch } from "../api.js";
 
-const PLAYER_ID = 1; // Tomáš Kovář — jediný hráč, co má v demu skutečné propojení na backend
+// Výchozí (demo) profil hráče — použije se jako placeholder, dokud nedorazí
+// skutečná data ze serveru pro zvoleného hráče (podle :id v URL).
+const emptyPlayer = {
+  name: "",
+  club: "",
+  position: "",
+  age: "",
+  height: "",
+  foot: "",
+  marketValue: 0,
+  contractUntil: "",
+  agent: "",
+  minutesTracked: 0,
+  riskLevel: "low",
+};
 
 // ---- Design tokens -------------------------------------------------
 const C = {
@@ -44,22 +62,6 @@ const C = {
 const fontDisplay = "'Space Grotesk', sans-serif";
 const fontBody = "'Inter', sans-serif";
 const fontMono = "'IBM Plex Mono', monospace";
-
-// ---- Mock data -------------------------------------------------------
-const player = {
-  name: "Tomáš Kovář",
-  club: "FK Ostrov Bytom",
-  position: "Pravý obránce",
-  age: 21,
-  height: "181 cm",
-  foot: "Pravá",
-  marketValue: "1.8M €",
-  contractUntil: "Červen 2027",
-  contractMonthsLeft: 22,
-  agent: "Sport Alliance Group",
-  minutesTracked: 1420,
-  riskLevel: "low",
-};
 
 // Injury risk model (Modul B3 z PRD) — baseline + faktory, ne černá skříňka.
 const fallbackInjuryRisk = {
@@ -289,7 +291,8 @@ const fallbackSimilarPlayers = [
   },
 ];
 
-const tabs = ["Statistiky", "Video", "Reporty skautů", "Historie", "Podobní hráči"];
+// Záložky se skládají dynamicky podle toho, jaká data pro daného hráče skutečně
+// existují — u hráče bez AI analytiky appka nenabízí prázdné "Video"/"Historie" atd.
 
 // ---- Small building blocks --------------------------------------------
 
@@ -445,10 +448,14 @@ function MarketValueChart({ data }) {
   const x = (i) => padX + (i / (n - 1)) * (width - 2 * padX);
   const y = (v) => height - padY - ((v - minV) / (maxV - minV)) * (height - 2 * padY);
 
-  const firstProjectedIdx = data.findIndex((d) => d.projected);
+  const rawProjectedIdx = data.findIndex((d) => d.projected);
+  // Fall back gracefully if no entry is marked as a projection: treat the
+  // last point as "current" and skip the projection band/text entirely.
+  const hasProjection = rawProjectedIdx > 0;
+  const firstProjectedIdx = hasProjection ? rawProjectedIdx : n - 1;
 
   const historicalPts = data.slice(0, firstProjectedIdx + 1);
-  const projectedPts = data.slice(firstProjectedIdx);
+  const projectedPts = hasProjection ? data.slice(firstProjectedIdx) : [];
 
   const toPath = (pts) => pts.map((d, i) => `${i === 0 ? "M" : "L"} ${x(data.indexOf(d))} ${y(d.value)}`).join(" ");
 
@@ -456,9 +463,9 @@ function MarketValueChart({ data }) {
   const bandBottom = [...projectedPts].reverse().map((d) => `${x(data.indexOf(d))},${y(d.low)}`).join(" ");
   const bandPoints = `${bandTop} ${bandBottom}`;
 
-  const current = data[firstProjectedIdx - 1];
-  const nextYear = data[firstProjectedIdx];
-  const deltaPct = Math.round(((nextYear.value - current.value) / current.value) * 100);
+  const current = hasProjection ? data[firstProjectedIdx - 1] : data[n - 1];
+  const nextYear = hasProjection ? data[firstProjectedIdx] : null;
+  const deltaPct = nextYear ? Math.round(((nextYear.value - current.value) / current.value) * 100) : 0;
 
   return (
     <div>
@@ -466,13 +473,15 @@ function MarketValueChart({ data }) {
         <span style={{ fontFamily: fontMono, fontSize: 22, fontWeight: 600, color: C.ink }}>{current.value.toFixed(1)}M €</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: C.turf }}>aktuální</span>
       </div>
-      <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 10 }}>
-        Za 12 měsíců: {nextYear.value.toFixed(1)}M € ({deltaPct > 0 ? "+" : ""}{deltaPct}%), rozpětí {nextYear.low.toFixed(1)}–{nextYear.high.toFixed(1)}M €
-      </div>
+      {nextYear && (
+        <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 10 }}>
+          Za 12 měsíců: {nextYear.value.toFixed(1)}M € ({deltaPct > 0 ? "+" : ""}{deltaPct}%), rozpětí {nextYear.low.toFixed(1)}–{nextYear.high.toFixed(1)}M €
+        </div>
+      )}
       <svg width={width} height={height} style={{ overflow: "visible" }}>
-        <polygon points={bandPoints} fill={C.turfSoft} opacity={0.8} />
+        {hasProjection && <polygon points={bandPoints} fill={C.turfSoft} opacity={0.8} />}
         <path d={toPath(historicalPts)} stroke={C.turf} strokeWidth={2} fill="none" />
-        <path d={toPath(projectedPts)} stroke={C.turf} strokeWidth={2} strokeDasharray="4 3" fill="none" />
+        {hasProjection && <path d={toPath(projectedPts)} stroke={C.turf} strokeWidth={2} strokeDasharray="4 3" fill="none" />}
         {data.map((d, i) => (
           <circle
             key={d.year}
@@ -799,9 +808,11 @@ function riskLabelText(risk) {
 // ---- Main component -----------------------------------------------------
 
 export default function PlayerProfile() {
+  const { id } = useParams();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Statistiky");
   const [shortlisted, setShortlisted] = useState(false);
-  const [expandedStat, setExpandedStat] = useState("transition");
+  const [expandedStat, setExpandedStat] = useState(null);
   const [selectedClips, setSelectedClips] = useState(new Set());
   const [scout, setScout] = useState("");
   const [style, setStyle] = useState("pressing");
@@ -810,58 +821,98 @@ export default function PlayerProfile() {
   const [expandedBadge, setExpandedBadge] = useState(null);
   const [riskExpanded, setRiskExpanded] = useState(false);
   const [compareSelected, setCompareSelected] = useState(new Set());
-  const [reports, setReports] = useState(fallbackReports);
+  const [reports, setReports] = useState([]);
   const [backendConnected, setBackendConnected] = useState(null); // null = ještě nezjištěno
   const [newReport, setNewReport] = useState({ author: "Petr Novák", match: "", recommendation: "Doporučit" });
   const [submitting, setSubmitting] = useState(false);
 
-  // Veškerá "těžká" data profilu — dokud nedorazí odpověď ze serveru, appka běží
-  // na záložních (fallback) hodnotách, takže obrazovka nikdy nezůstane prázdná.
-  const [breakdown, setBreakdown] = useState(fallbackBreakdown);
-  const [styleContributions, setStyleContributions] = useState(fallbackStyleContributions);
-  const [clips, setClips] = useState(fallbackClips);
-  const [timeline, setTimeline] = useState(fallbackTimeline);
-  const [marketHistory, setMarketHistory] = useState(fallbackMarketHistory);
-  const [scoreHistoryRatios, setScoreHistoryRatios] = useState(fallbackScoreHistoryRatios);
-  const [matchPerformances, setMatchPerformances] = useState(fallbackMatchPerformances);
-  const [clutchData, setClutchData] = useState(fallbackClutchData);
-  const [injuryRisk, setInjuryRisk] = useState(fallbackInjuryRisk);
-  const [similarPlayers, setSimilarPlayers] = useState(fallbackSimilarPlayers);
+  // Hráč a jeho základní údaje — natažené z API podle :id v URL. emptyPlayer je
+  // jen placeholder, dokud odpověď nedorazí.
+  const [player, setPlayer] = useState(emptyPlayer);
+  const [notFound, setNotFound] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingPlayer, setDeletingPlayer] = useState(false);
+  const [confirmDeletePlayer, setConfirmDeletePlayer] = useState(false);
+
+  // Veškerá "těžká" AI analytická data profilu — u nově přidaného hráče (nebo
+  // hráče bez analytiky) zůstávají prázdná a příslušné sekce se pak skrývají,
+  // místo aby appka ukazovala cizí (demo) data.
+  const [breakdown, setBreakdown] = useState([]);
+  const [styleContributions, setStyleContributions] = useState(null);
+  const [clips, setClips] = useState([]);
+  const [timeline, setTimeline] = useState([]);
+  const [marketHistory, setMarketHistory] = useState([]);
+  const [scoreHistoryRatios, setScoreHistoryRatios] = useState([]);
+  const [matchPerformances, setMatchPerformances] = useState([]);
+  const [clutchData, setClutchData] = useState(null);
+  const [injuryRisk, setInjuryRisk] = useState(null);
+  const [similarPlayers, setSimilarPlayers] = useState([]);
+  const [physicalData, setPhysicalData] = useState(null);
+  const [technicalMetrics, setTechnicalMetrics] = useState(null);
+  const [mentalProfile, setMentalProfile] = useState(null);
+  const [strengths, setStrengths] = useState([]);
+  const [weaknesses, setWeaknesses] = useState([]);
 
   useEffect(() => {
-    apiFetch(`/api/players/${PLAYER_ID}`)
+    setNotFound(false);
+    apiFetch(`/api/players/${id}`)
+      .then((res) => {
+        if (res.status === 404) {
+          setNotFound(true);
+          return null;
+        }
+        if (!res.ok) throw new Error("bad response");
+        return res.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        setPlayer({
+          name: data.name || "",
+          club: data.club || "",
+          position: data.position || "",
+          age: data.age || "",
+          height: data.height || "",
+          foot: data.foot || "",
+          marketValue: data.marketValue || 0,
+          contractUntil: data.contractUntil || "",
+          agent: data.agent || "",
+          minutesTracked: data.minutesTracked || 0,
+          riskLevel: data.riskLevel || "low",
+        });
+        setBreakdown(data.breakdown || []);
+        setStyleContributions(data.styleContributions || null);
+        setClips(data.clips || []);
+        setTimeline(data.careerHistory || []);
+        setMarketHistory(data.marketHistory || []);
+        setScoreHistoryRatios(data.scoreHistoryRatios || []);
+        setMatchPerformances(data.matchPerformances || []);
+        setClutchData(data.clutchData || null);
+        setInjuryRisk(data.injuryRisk || null);
+        setSimilarPlayers(data.similarPlayersData || []);
+        setPhysicalData(data.physicalData || null);
+        setTechnicalMetrics(data.technicalMetrics || null);
+        setMentalProfile(data.mentalProfile || null);
+        setStrengths(data.strengths || []);
+        setWeaknesses(data.weaknesses || []);
+        setBackendConnected(true);
+      })
+      .catch(() => setBackendConnected(false));
+  }, [id]);
+
+  useEffect(() => {
+    apiFetch(`/api/reports?playerId=${id}`)
       .then((res) => {
         if (!res.ok) throw new Error("bad response");
         return res.json();
       })
       .then((data) => {
-        if (data.breakdown) setBreakdown(data.breakdown);
-        if (data.styleContributions) setStyleContributions(data.styleContributions);
-        if (data.clips) setClips(data.clips);
-        if (data.careerHistory) setTimeline(data.careerHistory);
-        if (data.marketHistory) setMarketHistory(data.marketHistory);
-        if (data.scoreHistoryRatios) setScoreHistoryRatios(data.scoreHistoryRatios);
-        if (data.matchPerformances) setMatchPerformances(data.matchPerformances);
-        if (data.clutchData) setClutchData(data.clutchData);
-        if (data.injuryRisk) setInjuryRisk(data.injuryRisk);
-        if (data.similarPlayersData) setSimilarPlayers(data.similarPlayersData);
+        setReports(data);
         setBackendConnected(true);
       })
       .catch(() => setBackendConnected(false));
-  }, []);
-
-  useEffect(() => {
-    apiFetch(`/api/reports?playerId=${PLAYER_ID}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("bad response");
-        return res.json();
-      })
-      .then((data) => {
-        if (data.length > 0) setReports(data);
-        setBackendConnected(true);
-      })
-      .catch(() => setBackendConnected(false));
-  }, []);
+  }, [id]);
 
   const submitReport = (e) => {
     e.preventDefault();
@@ -869,7 +920,7 @@ export default function PlayerProfile() {
     apiFetch(`/api/reports`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playerId: PLAYER_ID, ...newReport }),
+      body: JSON.stringify({ playerId: Number(id), ...newReport }),
     })
       .then((res) => {
         if (!res.ok) throw new Error("bad response");
@@ -884,21 +935,82 @@ export default function PlayerProfile() {
       .finally(() => setSubmitting(false));
   };
 
-  const contributions = styleContributions[style];
-  const score = BASE_SCORE + Object.values(contributions).reduce((sum, v) => sum + v, 0);
+  const startEditing = () => {
+    setEditForm({
+      name: player.name || "",
+      position: player.position || "",
+      age: player.age || "",
+      club: player.club || "",
+      marketValue: player.marketValue || "",
+      contractUntil: player.contractUntil || "",
+      agent: player.agent || "",
+      foot: player.foot || "",
+      height: player.height || "",
+    });
+    setEditing(true);
+  };
 
-  const ranked = [...breakdown].sort((a, b) => contributions[b.id] - contributions[a.id]);
-  const topPositive = ranked[0];
-  const topNegative = ranked[ranked.length - 1];
+  const saveEdit = (e) => {
+    e.preventDefault();
+    setSavingEdit(true);
+    apiFetch(`/api/players/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editForm),
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((updated) => {
+        setPlayer((p) => ({ ...p, ...updated, marketValue: updated.marketValue ?? p.marketValue }));
+        setEditing(false);
+      })
+      .catch(() => {})
+      .finally(() => setSavingEdit(false));
+  };
+
+  const deletePlayer = () => {
+    setDeletingPlayer(true);
+    apiFetch(`/api/players/${id}`, { method: "DELETE" })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then(() => navigate("/hledani"))
+      .catch(() => setDeletingPlayer(false));
+  };
+
+  // Jen Tomáš Kovář má v datech kompletní "styleContributions" (kontribuce metrik
+  // podle filozofie klubu). U ostatních hráčů se stejný "Rozklad skóre" dá zobrazit
+  // i bez toho — kontribuce se pak dopočítá přímo z percentilu dané metriky.
+  const hasAnalytics = breakdown.length > 0;
+  const contributions = hasAnalytics
+    ? styleContributions
+      ? styleContributions[style]
+      : Object.fromEntries(breakdown.map((s) => [s.id, Math.round((s.percentile - 50) / 6)]))
+    : null;
+  const score = hasAnalytics ? Math.max(0, Math.min(100, BASE_SCORE + Object.values(contributions).reduce((sum, v) => sum + v, 0))) : null;
+
+  const ranked = hasAnalytics ? [...breakdown].sort((a, b) => contributions[b.id] - contributions[a.id]) : [];
+  const topPositive = ranked[0] || null;
+  const topNegative = ranked[ranked.length - 1] || null;
 
   const riskLabel = { low: "Nízké riziko zranění", medium: "Střední riziko", high: "Vysoké riziko" }[player.riskLevel];
   const riskColor = { low: C.turf, medium: C.amber, high: C.red }[player.riskLevel];
   const riskBg = { low: C.turfSoft, medium: C.amberSoft, high: C.redSoft }[player.riskLevel];
 
-  const toggleClip = (id) => {
+  // Záložky se skládají dynamicky — prázdné sekce appka nenabízí.
+  const tabs = [
+    "Statistiky",
+    ...(clips.length > 0 ? ["Video"] : []),
+    "Reporty skautů",
+    ...(timeline.length > 0 ? ["Historie"] : []),
+    ...(similarPlayers.length > 0 ? ["Podobní hráči"] : []),
+  ];
+
+  useEffect(() => {
+    setActiveTab("Statistiky");
+  }, [id]);
+
+  const toggleClip = (clipId) => {
     setSelectedClips((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      next.has(clipId) ? next.delete(clipId) : next.add(clipId);
       return next;
     });
   };
@@ -911,6 +1023,25 @@ export default function PlayerProfile() {
   const injuryDays = timeline.filter((t) => t.category === "injury").reduce((sum, t) => sum + (t.days || 0), 0);
   const transferCount = timeline.filter((t) => t.category === "transfer").length;
 
+  const initials = (player.name || "")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase() || "?";
+
+  if (notFound) {
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: fontBody }}>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ color: C.inkSoft, marginBottom: 12 }}>Hráč nenalezen.</p>
+          <Link to="/hledani" style={{ color: C.turf, fontWeight: 600, textDecoration: "none" }}>← Zpět na vyhledávání</Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", fontFamily: fontBody, color: C.ink }}>
       <style>{`
@@ -922,11 +1053,15 @@ export default function PlayerProfile() {
       `}</style>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 60px" }}>
+        <Link to="/hledani" style={{ display: "flex", alignItems: "center", gap: 6, color: C.inkFaint, fontSize: 13, textDecoration: "none", marginBottom: 16, width: "fit-content" }}>
+          <ChevronLeft size={14} /> Zpět na vyhledávání
+        </Link>
+
         {/* ---------- Header ---------- */}
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "22px 24px", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 20, marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <div style={{ width: 64, height: 64, borderRadius: 6, background: C.turfDark, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <span style={{ fontFamily: fontDisplay, color: "#fff", fontSize: 20, fontWeight: 700 }}>TK</span>
+              <span style={{ fontFamily: fontDisplay, color: "#fff", fontSize: 20, fontWeight: 700 }}>{initials}</span>
             </div>
             <div>
               <h1 style={{ fontFamily: fontDisplay, fontSize: 24, fontWeight: 700, margin: 0 }}>{player.name}</h1>
@@ -937,7 +1072,7 @@ export default function PlayerProfile() {
                 <Divider />
                 <span style={{ fontSize: 13, color: C.inkSoft }}>{player.age} let</span>
                 <button
-                  onClick={() => setRiskExpanded((v) => !v)}
+                  onClick={() => injuryRisk && setRiskExpanded((v) => !v)}
                   style={{
                     marginLeft: 6,
                     display: "inline-flex",
@@ -950,17 +1085,19 @@ export default function PlayerProfile() {
                     color: riskColor,
                     background: riskBg,
                     border: "none",
-                    cursor: "pointer",
+                    cursor: injuryRisk ? "pointer" : "default",
                   }}
                 >
                   {riskLabel}
-                  <ChevronDown size={11} style={{ transform: riskExpanded ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+                  {injuryRisk && (
+                    <ChevronDown size={11} style={{ transform: riskExpanded ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+                  )}
                 </button>
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button
               onClick={() => setShortlisted((s) => !s)}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: shortlisted ? "#fff" : C.ink, background: shortlisted ? C.turf : "#fff", border: `1px solid ${shortlisted ? C.turf : C.line}`, borderRadius: 4, cursor: "pointer" }}
@@ -972,19 +1109,83 @@ export default function PlayerProfile() {
               <FileDown size={15} />
               Executive summary
             </button>
+            {!confirmDeletePlayer ? (
+              <button
+                onClick={() => setConfirmDeletePlayer(true)}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.red, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}
+              >
+                <Trash2 size={15} /> Smazat hráče
+              </button>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Opravdu smazat? Nevratné.</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={deletePlayer} disabled={deletingPlayer} style={{ padding: "6px 12px", background: C.red, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {deletingPlayer ? "Mažu…" : "Ano, smazat"}
+                  </button>
+                  <button onClick={() => setConfirmDeletePlayer(false)} style={{ padding: "6px 12px", background: "#fff", color: C.inkSoft, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    Zrušit
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {riskExpanded && <InjuryRiskPanel data={injuryRisk} />}
+        {riskExpanded && injuryRisk && <InjuryRiskPanel data={injuryRisk} />}
+
+        {/* ---------- Základní údaje (editovatelné) ---------- */}
+        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "18px 24px", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: editing ? 14 : 0 }}>
+            <SectionLabel>Základní údaje</SectionLabel>
+            {!editing && (
+              <button onClick={startEditing} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                <Pencil size={13} /> Upravit
+              </button>
+            )}
+          </div>
+          {editing ? (
+            <form onSubmit={saveEdit}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                {[
+                  ["name", "Jméno"],
+                  ["position", "Pozice"],
+                  ["age", "Věk"],
+                  ["club", "Klub"],
+                  ["marketValue", "Tržní hodnota (M €)"],
+                  ["contractUntil", "Kontrakt do"],
+                  ["agent", "Agent"],
+                  ["foot", "Preferovaná noha"],
+                  ["height", "Výška"],
+                ].map(([field, label]) => (
+                  <div key={field}>
+                    <label style={{ display: "block", fontSize: 11, color: C.inkFaint, marginBottom: 4, fontWeight: 600 }}>{label}</label>
+                    <input
+                      value={editForm[field]}
+                      onChange={(e) => setEditForm((f) => ({ ...f, [field]: e.target.value }))}
+                      style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={savingEdit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  <Check size={13} /> {savingEdit ? "Ukládám…" : "Uložit"}
+                </button>
+                <button type="button" onClick={() => setEditing(false)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", color: C.inkSoft, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  <X size={13} /> Zrušit
+                </button>
+              </div>
+            </form>
+          ) : null}
+        </div>
 
         {/* ---------- Contract bar ---------- */}
-        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "14px 24px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontSize: 12, color: C.inkSoft, flexShrink: 0 }}>Kontrakt do {player.contractUntil}</span>
-          <div style={{ flex: 1, height: 6, background: C.lineSoft, borderRadius: 3, maxWidth: 320 }}>
-            <div style={{ width: `${Math.min(100, (player.contractMonthsLeft / 36) * 100)}%`, height: "100%", borderRadius: 3, background: player.contractMonthsLeft > 12 ? C.turf : C.amber }} />
+        {player.contractUntil && (
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "14px 24px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16 }}>
+            <span style={{ fontSize: 12, color: C.inkSoft, flexShrink: 0 }}>Kontrakt do {player.contractUntil}</span>
           </div>
-          <span style={{ fontSize: 12, color: C.inkFaint }}>{player.contractMonthsLeft} měsíců zbývá</span>
-        </div>
+        )}
 
         {/* ---------- Tabs ---------- */}
         <div style={{ display: "flex", gap: 26, borderBottom: `1px solid ${C.line}`, marginBottom: 24, flexWrap: "wrap" }}>
@@ -1004,57 +1205,164 @@ export default function PlayerProfile() {
           <div style={{ gridColumn: "span 12" }} className="md:col-span-8">
             {activeTab === "Statistiky" && (
               <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 24 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-                  <SectionLabel>Celkové skóre</SectionLabel>
-                  <div>
-                    <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6 }}>Filozofie klubu</div>
-                    <StyleSwitch active={style} onChange={setStyle} />
+                {!hasAnalytics && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.lineSoft, borderRadius: 6, padding: "10px 14px", marginBottom: physicalData || technicalMetrics || mentalProfile || strengths.length > 0 ? 20 : 0 }}>
+                    <ShieldAlert size={14} color={C.inkFaint} />
+                    <span style={{ fontSize: 12, color: C.inkSoft }}>
+                      Pro tohoto hráče zatím nejsou k dispozici žádná AI analytická data (skóre, video, riziko zranění). Sem se doplní automaticky, jakmile budou nasbírána.
+                    </span>
                   </div>
-                </div>
+                )}
 
-                <div style={{ display: "flex", gap: 28, flexWrap: "wrap", marginBottom: 24 }}>
-                  <ScoreDial value={score} />
-                  <div style={{ flex: 1, minWidth: 240 }}>
-                    <p style={{ fontSize: 14, color: C.inkSoft, lineHeight: 1.6, margin: 0 }}>
-                      Při zvolené filozofii (<strong style={{ color: C.ink }}>{STYLES.find((s) => s.id === style).label}</strong>) táhne skóre nahoru hlavně{" "}
-                      <strong style={{ color: C.ink }}>{topPositive.label.toLowerCase()}</strong> (<span style={{ color: C.turf }}>+{contributions[topPositive.id]}</span>),
-                      dolů ho stahuje <strong style={{ color: C.ink }}>{topNegative.label.toLowerCase()}</strong> (
-                      <span style={{ color: contributions[topNegative.id] < 0 ? C.red : C.turf }}>{contributions[topNegative.id]}</span>). Percentily metrik jsou
-                      objektivní a neměnné — mění se jen váha, kterou jim klub podle své filozofie přisuzuje.
-                    </p>
+                {hasAnalytics && (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+                      <SectionLabel>Celkové skóre</SectionLabel>
+                      {styleContributions && (
+                        <div>
+                          <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 6 }}>Filozofie klubu</div>
+                          <StyleSwitch active={style} onChange={setStyle} />
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 28, flexWrap: "wrap", marginBottom: 24 }}>
+                      <ScoreDial value={score} />
+                      <div style={{ flex: 1, minWidth: 240 }}>
+                        <p style={{ fontSize: 14, color: C.inkSoft, lineHeight: 1.6, margin: 0 }}>
+                          {styleContributions ? (
+                            <>
+                              Při zvolené filozofii (<strong style={{ color: C.ink }}>{STYLES.find((s) => s.id === style).label}</strong>) táhne skóre nahoru hlavně{" "}
+                              <strong style={{ color: C.ink }}>{topPositive.label.toLowerCase()}</strong> (<span style={{ color: C.turf }}>+{contributions[topPositive.id]}</span>),
+                              dolů ho stahuje <strong style={{ color: C.ink }}>{topNegative.label.toLowerCase()}</strong> (
+                              <span style={{ color: contributions[topNegative.id] < 0 ? C.red : C.turf }}>{contributions[topNegative.id]}</span>). Percentily metrik jsou
+                              objektivní a neměnné — mění se jen váha, kterou jim klub podle své filozofie přisuzuje.
+                            </>
+                          ) : (
+                            <>
+                              Skóre táhne nahoru hlavně <strong style={{ color: C.ink }}>{topPositive.label.toLowerCase()}</strong> ({topPositive.percentile}. percentil),
+                              dolů ho stahuje <strong style={{ color: C.ink }}>{topNegative.label.toLowerCase()}</strong> ({topNegative.percentile}. percentil).
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {scoreHistoryRatios.length > 0 && (
+                      <div style={{ marginBottom: 24 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                          <SectionLabel>Jistota skóre v čase</SectionLabel>
+                          <span style={{ fontSize: 11, color: C.inkFaint }}>rozpětí se zužuje s přibývajícími minutami (Krok 5)</span>
+                        </div>
+                        <ScoreCertaintyChart ratios={scoreHistoryRatios} currentScore={score} />
+                      </div>
+                    )}
+
+                    {clutchData && (
+                      <div style={{ marginBottom: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
+                        <SectionLabel>Clutch performance</SectionLabel>
+                        <ClutchCard data={clutchData} />
+                      </div>
+                    )}
+
+                    <SectionLabel>Rozklad skóre po metrikách</SectionLabel>
+                    <div>
+                      {breakdown.map((stat) => (
+                        <StatRow
+                          key={stat.id}
+                          stat={stat}
+                          contribution={contributions[stat.id]}
+                          expanded={expandedStat === stat.id}
+                          onToggle={() => setExpandedStat(expandedStat === stat.id ? null : stat.id)}
+                          clipsCount={stat.tag ? clipsForTag(stat.tag).length : 0}
+                          onShowClips={() => {
+                            setHighlightTag(stat.tag);
+                            setActiveTab("Video");
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {(physicalData || technicalMetrics) && (
+                  <div style={{ marginTop: hasAnalytics ? 24 : 0, paddingTop: hasAnalytics ? 20 : 0, borderTop: hasAnalytics ? `1px solid ${C.lineSoft}` : "none", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                    {physicalData && (
+                      <div>
+                        <SectionLabel>Fyzická data</SectionLabel>
+                        {[
+                          ["Proběhaná vzdálenost", `${physicalData.distanceKm} km/zápas`],
+                          ["Sprinty", `${physicalData.sprints}/zápas`],
+                          ["Max. rychlost", `${physicalData.topSpeedKmh} km/h`],
+                          ["Vysoká intenzita", `${physicalData.highIntensityPct} %`],
+                        ].map(([label, value]) => (
+                          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                            <span style={{ color: C.inkFaint }}>{label}</span>
+                            <span style={{ fontFamily: fontMono, color: C.ink, fontWeight: 600 }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {technicalMetrics && (
+                      <div>
+                        <SectionLabel>Technické metriky</SectionLabel>
+                        {[
+                          ["Úspěšnost driblinku", `${technicalMetrics.dribbleSuccessPct} %`],
+                          ["Klíčové přihrávky", `${technicalMetrics.keyPassesPerMatch}/zápas`],
+                          ["Vzdušné souboje", `${technicalMetrics.aerialDuelsWonPct} %`],
+                          ["Úspěšné odebrání míče", `${technicalMetrics.tacklesWonPct} %`],
+                          ["Přesnost přihrávek", `${technicalMetrics.passAccuracyPct} %`],
+                        ].map(([label, value]) => (
+                          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                            <span style={{ color: C.inkFaint }}>{label}</span>
+                            <span style={{ fontFamily: fontMono, color: C.ink, fontWeight: 600 }}>{value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
-                <div style={{ marginBottom: 24 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                    <SectionLabel>Jistota skóre v čase</SectionLabel>
-                    <span style={{ fontSize: 11, color: C.inkFaint }}>rozpětí se zužuje s přibývajícími minutami (Krok 5)</span>
+                {mentalProfile && (
+                  <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
+                    <SectionLabel>Mentální profil</SectionLabel>
+                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 10 }}>
+                      {[
+                        ["Lídrovství", mentalProfile.leadership],
+                        ["Klid pod tlakem", mentalProfile.composure],
+                        ["Koučovatelnost", mentalProfile.coachability],
+                        ["Pracovitost", mentalProfile.workRate],
+                      ].map(([label, value]) => (
+                        <div key={label} style={{ minWidth: 100 }}>
+                          <div style={{ fontFamily: fontMono, fontSize: 20, fontWeight: 600, color: C.turf }}>{value}/10</div>
+                          <div style={{ fontSize: 12, color: C.inkFaint }}>{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {mentalProfile.note && <p style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.6, margin: 0 }}>{mentalProfile.note}</p>}
                   </div>
-                  <ScoreCertaintyChart ratios={scoreHistoryRatios} currentScore={score} />
-                </div>
+                )}
 
-                <div style={{ marginBottom: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
-                  <SectionLabel>Clutch performance</SectionLabel>
-                  <ClutchCard data={clutchData} />
-                </div>
-
-                <SectionLabel>Rozklad skóre po metrikách</SectionLabel>
-                <div>
-                  {breakdown.map((stat) => (
-                    <StatRow
-                      key={stat.id}
-                      stat={stat}
-                      contribution={contributions[stat.id]}
-                      expanded={expandedStat === stat.id}
-                      onToggle={() => setExpandedStat(expandedStat === stat.id ? null : stat.id)}
-                      clipsCount={stat.tag ? clipsForTag(stat.tag).length : 0}
-                      onShowClips={() => {
-                        setHighlightTag(stat.tag);
-                        setActiveTab("Video");
-                      }}
-                    />
-                  ))}
-                </div>
+                {(strengths.length > 0 || weaknesses.length > 0) && (
+                  <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}`, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                    {strengths.length > 0 && (
+                      <div>
+                        <SectionLabel>Silné stránky</SectionLabel>
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: C.inkSoft, lineHeight: 1.8 }}>
+                          {strengths.map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {weaknesses.length > 0 && (
+                      <div>
+                        <SectionLabel>Slabé stránky</SectionLabel>
+                        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: C.inkSoft, lineHeight: 1.8 }}>
+                          {weaknesses.map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1306,7 +1614,7 @@ export default function PlayerProfile() {
 
                 {compareSelected.size > 0 && (
                   <CompareTable
-                    base={player}
+                    base={{ ...player, marketValue: player.marketValue ? `${Number(player.marketValue).toFixed(1)}M €` : "—" }}
                     baseScore={score}
                     others={similarPlayers.filter((p) => compareSelected.has(p.id))}
                     breakdown={breakdown}
@@ -1321,37 +1629,43 @@ export default function PlayerProfile() {
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
               <SectionLabel>Rychlé info</SectionLabel>
               {[
-                ["Tržní hodnota", player.marketValue],
-                ["Agent", player.agent],
-                ["Preferovaná noha", player.foot],
-                ["Výška", player.height],
+                ["Tržní hodnota", player.marketValue ? `${Number(player.marketValue).toFixed(1)}M €` : "—"],
+                ["Agent", player.agent || "—"],
+                ["Preferovaná noha", player.foot || "—"],
+                ["Výška", player.height || "—"],
               ].map(([label, value]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
                   <span style={{ color: C.inkFaint }}>{label}</span>
                   <span style={{ color: C.ink, fontWeight: 500 }}>{value}</span>
                 </div>
               ))}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
-                <ShieldCheck size={14} color={C.turf} />
-                <span style={{ fontSize: 12, color: C.inkSoft }}>Vysoká jistota dat ({player.minutesTracked} min sledováno)</span>
-              </div>
+              {player.minutesTracked > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
+                  <ShieldCheck size={14} color={C.turf} />
+                  <span style={{ fontSize: 12, color: C.inkSoft }}>Vysoká jistota dat ({player.minutesTracked} min sledováno)</span>
+                </div>
+              )}
             </div>
 
-            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-                <TrendingUp size={14} color={C.turf} />
-                <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: C.ink }}>Vývoj tržní hodnoty</span>
+            {marketHistory.length > 1 && (
+              <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                  <TrendingUp size={14} color={C.turf} />
+                  <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: C.ink }}>Vývoj tržní hodnoty</span>
+                </div>
+                <MarketValueChart data={marketHistory} />
               </div>
-              <MarketValueChart data={marketHistory} />
-            </div>
+            )}
 
-            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-                <Gauge size={14} color={C.turf} />
-                <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: C.ink }}>Konzistence výkonu</span>
+            {matchPerformances.length > 0 && (
+              <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                  <Gauge size={14} color={C.turf} />
+                  <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: C.ink }}>Konzistence výkonu</span>
+                </div>
+                <ConsistencyCard scores={matchPerformances} />
               </div>
-              <ConsistencyCard scores={matchPerformances} />
-            </div>
+            )}
 
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20 }}>
               <SectionLabel>Akce</SectionLabel>
