@@ -1109,6 +1109,13 @@ export default function PlayerProfile() {
               <FileDown size={15} />
               Executive summary
             </button>
+            <button
+              onClick={() => navigate(`/hrac/${id}/statistiky`)}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.ink, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}
+            >
+              <Pencil size={15} />
+              {hasAnalytics ? "Upravit statistiky" : "Zadat statistiky"}
+            </button>
             {!confirmDeletePlayer ? (
               <button
                 onClick={() => setConfirmDeletePlayer(true)}
@@ -1291,33 +1298,37 @@ export default function PlayerProfile() {
                       <div>
                         <SectionLabel>Fyzická data</SectionLabel>
                         {[
-                          ["Proběhaná vzdálenost", `${physicalData.distanceKm} km/zápas`],
-                          ["Sprinty", `${physicalData.sprints}/zápas`],
-                          ["Max. rychlost", `${physicalData.topSpeedKmh} km/h`],
-                          ["Vysoká intenzita", `${physicalData.highIntensityPct} %`],
-                        ].map(([label, value]) => (
-                          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
-                            <span style={{ color: C.inkFaint }}>{label}</span>
-                            <span style={{ fontFamily: fontMono, color: C.ink, fontWeight: 600 }}>{value}</span>
-                          </div>
-                        ))}
+                          ["Proběhaná vzdálenost", physicalData.distanceKm, "km/zápas"],
+                          ["Sprinty", physicalData.sprints, "/zápas"],
+                          ["Max. rychlost", physicalData.topSpeedKmh, "km/h"],
+                          ["Vysoká intenzita", physicalData.highIntensityPct, "%"],
+                        ]
+                          .filter(([, raw]) => raw !== undefined && raw !== null && raw !== "")
+                          .map(([label, raw, unit]) => (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                              <span style={{ color: C.inkFaint }}>{label}</span>
+                              <span style={{ fontFamily: fontMono, color: C.ink, fontWeight: 600 }}>{raw} {unit}</span>
+                            </div>
+                          ))}
                       </div>
                     )}
                     {technicalMetrics && (
                       <div>
                         <SectionLabel>Technické metriky</SectionLabel>
                         {[
-                          ["Úspěšnost driblinku", `${technicalMetrics.dribbleSuccessPct} %`],
-                          ["Klíčové přihrávky", `${technicalMetrics.keyPassesPerMatch}/zápas`],
-                          ["Vzdušné souboje", `${technicalMetrics.aerialDuelsWonPct} %`],
-                          ["Úspěšné odebrání míče", `${technicalMetrics.tacklesWonPct} %`],
-                          ["Přesnost přihrávek", `${technicalMetrics.passAccuracyPct} %`],
-                        ].map(([label, value]) => (
-                          <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
-                            <span style={{ color: C.inkFaint }}>{label}</span>
-                            <span style={{ fontFamily: fontMono, color: C.ink, fontWeight: 600 }}>{value}</span>
-                          </div>
-                        ))}
+                          ["Úspěšnost driblinku", technicalMetrics.dribbleSuccessPct, "%"],
+                          ["Klíčové přihrávky", technicalMetrics.keyPassesPerMatch, "/zápas"],
+                          ["Vzdušné souboje", technicalMetrics.aerialDuelsWonPct, "%"],
+                          ["Úspěšné odebrání míče", technicalMetrics.tacklesWonPct, "%"],
+                          ["Přesnost přihrávek", technicalMetrics.passAccuracyPct, "%"],
+                        ]
+                          .filter(([, raw]) => raw !== undefined && raw !== null && raw !== "")
+                          .map(([label, raw, unit]) => (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                              <span style={{ color: C.inkFaint }}>{label}</span>
+                              <span style={{ fontFamily: fontMono, color: C.ink, fontWeight: 600 }}>{raw} {unit}</span>
+                            </div>
+                          ))}
                       </div>
                     )}
                   </div>
@@ -1332,12 +1343,14 @@ export default function PlayerProfile() {
                         ["Klid pod tlakem", mentalProfile.composure],
                         ["Koučovatelnost", mentalProfile.coachability],
                         ["Pracovitost", mentalProfile.workRate],
-                      ].map(([label, value]) => (
-                        <div key={label} style={{ minWidth: 100 }}>
-                          <div style={{ fontFamily: fontMono, fontSize: 20, fontWeight: 600, color: C.turf }}>{value}/10</div>
-                          <div style={{ fontSize: 12, color: C.inkFaint }}>{label}</div>
-                        </div>
-                      ))}
+                      ]
+                        .filter(([, value]) => value !== undefined && value !== null && value !== "")
+                        .map(([label, value]) => (
+                          <div key={label} style={{ minWidth: 100 }}>
+                            <div style={{ fontFamily: fontMono, fontSize: 20, fontWeight: 600, color: C.turf }}>{value}/10</div>
+                            <div style={{ fontSize: 12, color: C.inkFaint }}>{label}</div>
+                          </div>
+                        ))}
                     </div>
                     {mentalProfile.note && <p style={{ fontSize: 13, color: C.inkSoft, lineHeight: 1.6, margin: 0 }}>{mentalProfile.note}</p>}
                   </div>
