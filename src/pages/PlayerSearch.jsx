@@ -177,15 +177,9 @@ export default function PlayerSearch() {
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
-                        {p.id === 1 ? (
-                          <Link to="/hrac" style={{ fontSize: 11, color: C.turf, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                            Profil (demo) <ArrowRight size={11} />
-                          </Link>
-                        ) : (
-                          <Link to={`/hrac-basic/${p.id}`} style={{ fontSize: 11, color: C.turf, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                            Profil <ArrowRight size={11} />
-                          </Link>
-                        )}
+                        <Link to={`/hrac/${p.id}`} style={{ fontSize: 11, color: C.turf, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                          Profil <ArrowRight size={11} />
+                        </Link>
                       </div>
                       <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>
                         {p.position} — {p.club} — {p.age} let — {p.marketValue.toFixed(1)}M €

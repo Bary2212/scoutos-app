@@ -69,7 +69,7 @@ export default function AddPlayer() {
         return res.json();
       })
       .then((created) => {
-        navigate(`/hrac-basic/${created.id}`);
+        navigate(`/hrac/${created.id}`);
       })
       .catch(() => {
         setError("Nepodařilo se uložit hráče. Běží backend na localhost:4000?");

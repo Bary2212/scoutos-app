@@ -304,8 +304,8 @@ export default function Dashboard() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 14, fontWeight: 600 }}>{c.player}</span>
                           <span style={{ fontSize: 12, color: C.inkFaint }}>{c.position}</span>
-                          {c.playerId === 1 && (
-                            <Link to="/hrac" style={{ fontSize: 11, color: C.turf, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                          {c.playerId && (
+                            <Link to={`/hrac/${c.playerId}`} style={{ fontSize: 11, color: C.turf, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}>
                               Profil <ArrowRight size={11} />
                             </Link>
                           )}
