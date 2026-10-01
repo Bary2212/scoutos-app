@@ -24,6 +24,7 @@ import {
   Check,
 } from "lucide-react";
 import { apiFetch } from "../api.js";
+import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
 
 // Výchozí (demo) profil hráče — použije se jako placeholder, dokud nedorazí
 // skutečná data ze serveru pro zvoleného hráče (podle :id v URL).
@@ -975,6 +976,13 @@ export default function PlayerProfile() {
       .catch(() => setDeletingPlayer(false));
   };
 
+  const handleExportSummary = (payload) => () => {
+    downloadExecutiveSummary(payload).catch((err) => {
+      console.error("Nepodařilo se vygenerovat executive summary:", err);
+      window.alert("Nepodařilo se vygenerovat PDF. Zkus to prosím znovu.");
+    });
+  };
+
   // Jen Tomáš Kovář má v datech kompletní "styleContributions" (kontribuce metrik
   // podle filozofie klubu). U ostatních hráčů se stejný "Rozklad skóre" dá zobrazit
   // i bez toho — kontribuce se pak dopočítá přímo z percentilu dané metriky.
@@ -1105,7 +1113,24 @@ export default function PlayerProfile() {
               <Star size={15} fill={shortlisted ? "#fff" : "none"} />
               {shortlisted ? "Na shortlistě" : "Sledovat"}
             </button>
-            <button style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.ink, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}>
+            <button
+              onClick={handleExportSummary({
+                player,
+                hasAnalytics,
+                score,
+                topPositive,
+                topNegative,
+                contributions,
+                breakdown,
+                physicalData,
+                technicalMetrics,
+                mentalProfile,
+                strengths,
+                weaknesses,
+                riskLabel,
+              })}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.ink, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}
+            >
               <FileDown size={15} />
               Executive summary
             </button>
@@ -1686,7 +1711,26 @@ export default function PlayerProfile() {
                 <ActionButton icon={Star} primary={!shortlisted} onClick={() => setShortlisted((s) => !s)}>
                   {shortlisted ? "Odebrat ze shortlisty" : "Přidat do shortlisty"}
                 </ActionButton>
-                <ActionButton icon={FileDown}>Vytvořit executive summary</ActionButton>
+                <ActionButton
+                  icon={FileDown}
+                  onClick={handleExportSummary({
+                    player,
+                    hasAnalytics,
+                    score,
+                    topPositive,
+                    topNegative,
+                    contributions,
+                    breakdown,
+                    physicalData,
+                    technicalMetrics,
+                    mentalProfile,
+                    strengths,
+                    weaknesses,
+                    riskLabel,
+                  })}
+                >
+                  Vytvořit executive summary
+                </ActionButton>
                 <div style={{ marginTop: 4 }}>
                   <label style={{ fontSize: 12, color: C.inkFaint, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                     <UserPlus size={13} /> Přiřadit skauta
