@@ -26,6 +26,7 @@ import {
 import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
 import { computePlayerScore } from "../lib/playerScore.js";
+import { useAuth } from "../AuthContext.jsx";
 
 // Výchozí (demo) profil hráče — použije se jako placeholder, dokud nedorazí
 // skutečná data ze serveru pro zvoleného hráče (podle :id v URL).
@@ -828,6 +829,12 @@ export default function PlayerProfile() {
   const [newReport, setNewReport] = useState({ author: "Petr Novák", match: "", recommendation: "Doporučit" });
   const [submitting, setSubmitting] = useState(false);
 
+  // ---------- Diskuze u hráče (veřejné komentáře, viditelné každému scoutovi) ----------
+  const { user } = useAuth();
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+
   // Hráč a jeho základní údaje — natažené z API podle :id v URL. emptyPlayer je
   // jen placeholder, dokud odpověď nedorazí.
   const [player, setPlayer] = useState(emptyPlayer);
@@ -937,6 +944,41 @@ export default function PlayerProfile() {
       .finally(() => setSubmitting(false));
   };
 
+  useEffect(() => {
+    apiFetch(`/api/players/${id}/comments`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setComments)
+      .catch(() => {});
+  }, [id]);
+
+  const submitComment = (e) => {
+    e.preventDefault();
+    const body = newComment.trim();
+    if (!body) return;
+    setCommentSubmitting(true);
+    apiFetch(`/api/players/${id}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("bad response");
+        return res.json();
+      })
+      .then((created) => {
+        setComments((prev) => [...prev, created]);
+        setNewComment("");
+      })
+      .catch(() => {})
+      .finally(() => setCommentSubmitting(false));
+  };
+
+  const deleteComment = (commentId) => {
+    apiFetch(`/api/comments/${commentId}`, { method: "DELETE" })
+      .then((res) => (res.ok ? setComments((prev) => prev.filter((c) => c.id !== commentId)) : null))
+      .catch(() => {});
+  };
+
   const startEditing = () => {
     setEditForm({
       name: player.name || "",
@@ -1004,6 +1046,7 @@ export default function PlayerProfile() {
     "Statistiky",
     ...(clips.length > 0 ? ["Video"] : []),
     "Reporty skautů",
+    "Diskuze",
     ...(timeline.length > 0 ? ["Historie"] : []),
     ...(similarPlayers.length > 0 ? ["Podobní hráči"] : []),
   ];
@@ -1544,6 +1587,62 @@ export default function PlayerProfile() {
                       Server na localhost:4000 neběží, report se neuloží trvale. Spusť ho příkazem <code style={{ fontFamily: fontMono }}>npm run dev</code> ve složce <code style={{ fontFamily: fontMono }}>server</code>.
                     </p>
                   )}
+                </form>
+              </div>
+            )}
+
+            {activeTab === "Diskuze" && (
+              <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 24 }}>
+                <SectionLabel>Diskuze ({comments.length})</SectionLabel>
+                <p style={{ fontSize: 12, color: C.inkFaint, margin: "4px 0 18px 0" }}>
+                  Veřejné vlákno u tohoto hráče — vidí ho každý scout, co má k appce přístup. Tvoje vlastní hodnocení (skóre, statistiky) tím nijak neovlivníš.
+                </p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
+                  {comments.map((c) => (
+                    <div key={c.id} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "12px 16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{c.author}</span>
+                          <span style={{ fontSize: 11, color: C.inkFaint, marginLeft: 8 }}>
+                            {new Date(c.createdAt).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" })}
+                          </span>
+                        </div>
+                        {user && c.userId === user.id && (
+                          <button
+                            onClick={() => deleteComment(c.id)}
+                            title="Smazat"
+                            style={{ background: "none", border: "none", color: C.inkFaint, cursor: "pointer", padding: 2, flexShrink: 0 }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 13, color: C.ink, marginTop: 6, whiteSpace: "pre-wrap" }}>{c.body}</div>
+                    </div>
+                  ))}
+                  {comments.length === 0 && (
+                    <div style={{ fontSize: 13, color: C.inkFaint, padding: "8px 0" }}>Zatím tu nikdo nic nenapsal — buď první.</div>
+                  )}
+                </div>
+
+                <form onSubmit={submitComment} style={{ borderTop: `1px solid ${C.lineSoft}`, paddingTop: 18 }}>
+                  <SectionLabel>Přidat komentář</SectionLabel>
+                  <textarea
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="Napiš postřeh k tomuto hráči — třeba z posledního zápasu, co jsi viděl…"
+                    rows={3}
+                    style={{ width: "100%", padding: "9px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody, resize: "vertical", marginBottom: 10 }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={commentSubmitting || !newComment.trim()}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: commentSubmitting ? "default" : "pointer", opacity: commentSubmitting || !newComment.trim() ? 0.7 : 1 }}
+                  >
+                    {commentSubmitting ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+                    {commentSubmitting ? "Odesílám…" : "Přidat komentář"}
+                  </button>
                 </form>
               </div>
             )}

@@ -516,6 +516,54 @@ app.delete("/api/reports/:id", async (req, res) => {
   }
 });
 
+// ---------- Diskuze u hráče ----------
+// Veřejné komentáře viditelné KAŽDÉMU scoutovi (na rozdíl od player_evaluations),
+// aby si mohli vyměňovat postřehy k témuž sdílenému hráči.
+function commentRowToApi(c) {
+  return { id: c.id, playerId: c.player_id, userId: c.user_id, author: c.author, body: c.body, createdAt: c.created_at };
+}
+
+app.get("/api/players/:id/comments", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM player_comments WHERE player_id = $1 ORDER BY id", [Number(req.params.id)]);
+    res.json(rows.map(commentRowToApi));
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst komentáře.", detail: err.message });
+  }
+});
+
+app.post("/api/players/:id/comments", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    const body = (req.body.body || "").trim();
+    if (!body) return res.status(400).json({ error: "Komentář nemůže být prázdný." });
+
+    const { rows: playerRows } = await pool.query("SELECT id FROM players WHERE id = $1", [playerId]);
+    if (!playerRows[0]) return res.status(404).json({ error: "Hráč nenalezen." });
+
+    const { rows } = await pool.query(
+      "INSERT INTO player_comments (player_id, user_id, author, body) VALUES ($1,$2,$3,$4) RETURNING *",
+      [playerId, req.user.id, req.user.name, body]
+    );
+    res.status(201).json(commentRowToApi(rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se uložit komentář.", detail: err.message });
+  }
+});
+
+app.delete("/api/comments/:id", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM player_comments WHERE id = $1", [Number(req.params.id)]);
+    const comment = rows[0];
+    if (!comment) return res.status(404).json({ error: "Komentář nenalezen." });
+    if (comment.user_id !== req.user.id) return res.status(403).json({ error: "Můžeš smazat jen svůj vlastní komentář." });
+    await pool.query("DELETE FROM player_comments WHERE id = $1", [comment.id]);
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se smazat komentář.", detail: err.message });
+  }
+});
+
 // GET /api/conflicts — dopočítané za běhu ze všech reportů (hráči jsou teď sdílení)
 app.get("/api/conflicts", async (req, res) => {
   try {

@@ -123,6 +123,18 @@ CREATE TABLE IF NOT EXISTS shortlist_stages (
   count INTEGER NOT NULL,
   sort_order INTEGER NOT NULL
 );
+
+-- Diskuze pod sdíleným profilem hráče — na rozdíl od player_evaluations je
+-- VEŘEJNÁ (vidí a čte ji každý scout), aby si lidé mohli vyměňovat postřehy
+-- k témuž hráči, aniž by zasahovali do cizího soukromého hodnocení.
+CREATE TABLE IF NOT EXISTS player_comments (
+  id SERIAL PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 // ---------- Demo hráči (sdílená demo data, viditelná pro isDemoTeam účty) ----------
