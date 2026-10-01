@@ -7,7 +7,7 @@ import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dns from "dns";
-import { pool, initDb } from "./db.js";
+import { pool, initDb, createClub, generateUniqueInviteCode } from "./db.js";
 
 // Render (free plán) má problémy se směrováním odchozích IPv6 spojení —
 // způsobovalo to jak ENETUNREACH chybu ke Gmailu, tak timeouty k Brevo API.
@@ -22,14 +22,14 @@ app.use(express.json());
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, name: user.name, email: user.email, role: user.role, isDemoTeam: !!user.is_demo_team },
+    { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
 }
 
 function publicUser(user) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, isDemoTeam: !!user.is_demo_team };
+  return { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team };
 }
 
 // ---------- E-MAIL — posílá se přes Brevo HTTP API (nastavuje se v proměnných prostředí) ----------
@@ -59,7 +59,7 @@ function generateCode() {
 
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { firstName, lastName, email, password, passwordConfirm } = req.body;
+    const { firstName, lastName, email, password, passwordConfirm, inviteCode } = req.body;
     if (!firstName || !lastName || !email || !password || !passwordConfirm) {
       return res.status(400).json({ error: "Vyplň prosím všechna pole." });
     }
@@ -71,16 +71,37 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(409).json({ error: "Účet s tímto e-mailem už existuje." });
     }
 
+    // Pozvánkový kód (nepovinný) → nový účet se přidá jako běžný skaut do
+    // existujícího klubu. Bez kódu si uživatel založí vlastní klub a stává
+    // se v něm hlavním skautem (vidí hodnocení všech skautů, které do klubu
+    // později přidá pomocí svého vlastního pozvánkového kódu).
+    let club = null;
+    if (inviteCode && inviteCode.trim()) {
+      const { rows: clubRows } = await pool.query("SELECT id, name FROM clubs WHERE invite_code = $1", [inviteCode.trim().toUpperCase()]);
+      if (clubRows.length === 0) {
+        return res.status(400).json({ error: "Neplatný pozvánkový kód klubu." });
+      }
+      club = clubRows[0];
+    }
+
     const verificationCode = generateCode();
     const verificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hodin
     const passwordHash = bcrypt.hashSync(password, 10);
     const name = `${firstName} ${lastName}`;
 
-    await pool.query(
-      `INSERT INTO users (first_name, last_name, name, email, password_hash, role, verified, verification_code, verification_expires)
-       VALUES ($1,$2,$3,$4,$5,'skaut',false,$6,$7)`,
-      [firstName, lastName, name, email, passwordHash, verificationCode, verificationExpires]
+    const { rows: insertedRows } = await pool.query(
+      `INSERT INTO users (first_name, last_name, name, email, password_hash, role, club_id, verified, verification_code, verification_expires)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,false,$8,$9)
+       RETURNING id`,
+      [firstName, lastName, name, email, passwordHash, club ? "skaut" : "hlavni_skaut", club ? club.id : null, verificationCode, verificationExpires]
     );
+    const newUserId = insertedRows[0].id;
+
+    if (!club) {
+      // Bez pozvánkového kódu dostane nový účet rovnou svůj vlastní klub.
+      const ownClub = await createClub(pool, `Klub – ${name}`, newUserId);
+      await pool.query("UPDATE users SET club_id = $1 WHERE id = $2", [ownClub.id, newUserId]);
+    }
 
     try {
       await sendMail({
@@ -162,6 +183,65 @@ app.use("/api", (req, res, next) => {
     next();
   } catch (err) {
     return res.status(401).json({ error: "Neplatný nebo vypršelý token, přihlas se prosím znovu." });
+  }
+});
+
+// ---------- KLUB — role a oprávnění ----------
+// Hlavní skaut vidí a řídí celý svůj klub (pozvánkový kód, seznam skautů,
+// jejich odebrání). Běžný skaut vidí jen název klubu, do kterého patří.
+app.get("/api/club", async (req, res) => {
+  try {
+    const { rows: clubRows } = await pool.query("SELECT id, name, invite_code FROM clubs WHERE id = $1", [req.user.clubId]);
+    const club = clubRows[0];
+    if (!club) return res.status(404).json({ error: "Klub nenalezen." });
+
+    const isHead = req.user.role === "hlavni_skaut";
+    const result = { id: club.id, name: club.name, myRole: req.user.role };
+
+    if (isHead) {
+      result.inviteCode = club.invite_code;
+      const { rows: scouts } = await pool.query(
+        `SELECT u.id, u.name, u.email, u.role,
+                (SELECT COUNT(*)::int FROM player_evaluations e WHERE e.user_id = u.id) AS evaluated_count
+         FROM users u WHERE u.club_id = $1 ORDER BY (u.role = 'hlavni_skaut') DESC, u.name`,
+        [club.id]
+      );
+      result.scouts = scouts.map((s) => ({ id: s.id, name: s.name, email: s.email, role: s.role, evaluatedCount: s.evaluated_count }));
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst klub.", detail: err.message });
+  }
+});
+
+app.post("/api/club/regenerate-invite", async (req, res) => {
+  try {
+    if (req.user.role !== "hlavni_skaut") return res.status(403).json({ error: "Jen hlavní skaut může obnovit pozvánkový kód." });
+    const inviteCode = await generateUniqueInviteCode(pool);
+    await pool.query("UPDATE clubs SET invite_code = $1 WHERE id = $2", [inviteCode, req.user.clubId]);
+    res.json({ inviteCode });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se obnovit pozvánkový kód.", detail: err.message });
+  }
+});
+
+app.delete("/api/club/scouts/:userId", async (req, res) => {
+  try {
+    if (req.user.role !== "hlavni_skaut") return res.status(403).json({ error: "Jen hlavní skaut může odebírat skauty z klubu." });
+    const targetId = Number(req.params.userId);
+    if (targetId === req.user.id) return res.status(400).json({ error: "Sám sebe z klubu odebrat nemůžeš." });
+
+    const { rows } = await pool.query("SELECT id, name, club_id FROM users WHERE id = $1", [targetId]);
+    const target = rows[0];
+    if (!target || target.club_id !== req.user.clubId) return res.status(404).json({ error: "Skaut v tomto klubu nenalezen." });
+
+    // Odebraný skaut nezůstává bez klubu — dostane vlastní nový klub (stejně
+    // jako při registraci bez pozvánkového kódu), aby o svá hodnocení nepřišel.
+    const ownClub = await createClub(pool, `Klub – ${target.name}`, target.id);
+    await pool.query("UPDATE users SET club_id = $1, role = 'hlavni_skaut' WHERE id = $2", [ownClub.id, target.id]);
+    res.json({ message: "Skaut byl odebrán z klubu." });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se odebrat skauta.", detail: err.message });
   }
 });
 
@@ -511,6 +591,44 @@ app.get("/api/players/:id", async (req, res) => {
     res.status(500).json({ error: "Nepodařilo se načíst hráče.", detail: err.message });
   }
 });
+
+// Hodnocení hráče ostatními skauty klubu — vidí jen hlavní skaut (dohled nad
+// prací celého klubu). Běžný skaut dostane zpět jen svoje vlastní hodnocení.
+app.get("/api/players/:id/evaluations", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    if (req.user.role !== "hlavni_skaut") {
+      const own = await getMyEvaluation(playerId, req.user.id);
+      return res.json(own ? [{ userId: req.user.id, scoutName: req.user.name, isMe: true, ...evaluationToApi(own) }] : []);
+    }
+    const { rows } = await pool.query(
+      `SELECT u.id AS user_id, u.name AS scout_name, e.market_value, e.risk_level, e.scores, e.reason, e.updated_at
+       FROM player_evaluations e
+       JOIN users u ON u.id = e.user_id
+       WHERE e.player_id = $1 AND u.club_id = $2
+       ORDER BY (u.id = $3) DESC, u.name`,
+      [playerId, req.user.clubId, req.user.id]
+    );
+    res.json(
+      rows.map((r) => ({
+        userId: r.user_id,
+        scoutName: r.scout_name,
+        isMe: r.user_id === req.user.id,
+        marketValue: Number(r.market_value),
+        riskLevel: r.risk_level,
+        scores: r.scores,
+        reason: r.reason,
+        updatedAt: r.updated_at,
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst hodnocení skautů.", detail: err.message });
+  }
+});
+
+function evaluationToApi(e) {
+  return { marketValue: Number(e.market_value), riskLevel: e.risk_level, scores: e.scores, reason: e.reason, updatedAt: e.updated_at };
+}
 
 app.get("/api/reports", async (req, res) => {
   try {

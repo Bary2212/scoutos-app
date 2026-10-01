@@ -20,7 +20,48 @@ export const pool = new Pool({
   ssl: process.env.DATABASE_URL?.includes("render.com") ? { rejectUnauthorized: false } : false,
 });
 
+// ---------- Kluby a pozvánkové kódy ----------
+function randomInviteCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // bez matoucích znaků (0/O, 1/I)
+  let code = "";
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+// Vygeneruje pozvánkový kód, který v tabulce clubs ještě není použitý.
+export async function generateUniqueInviteCode(queryable = pool) {
+  for (let i = 0; i < 25; i++) {
+    const code = randomInviteCode();
+    const { rows } = await queryable.query("SELECT 1 FROM clubs WHERE invite_code = $1", [code]);
+    if (rows.length === 0) return code;
+  }
+  throw new Error("Nepodařilo se vygenerovat unikátní pozvánkový kód, zkus to prosím znovu.");
+}
+
+// Založí nový klub a hned ho propojí se zakladatelem (created_by + vrátí i jeho id).
+export async function createClub(queryable, name, createdByUserId = null) {
+  const inviteCode = await generateUniqueInviteCode(queryable);
+  const { rows } = await queryable.query(
+    "INSERT INTO clubs (name, invite_code, created_by) VALUES ($1,$2,$3) RETURNING id, name, invite_code",
+    [name, inviteCode, createdByUserId]
+  );
+  return rows[0];
+}
+
 const SCHEMA_SQL = `
+-- 'clubs' seskupuje skauty do jedné organizace. Každý uživatel patří přesně
+-- do jednoho klubu (users.club_id) — buď jako 'hlavni_skaut' (založil klub
+-- nebo klub vznikl automaticky při jeho registraci), nebo jako 'skaut', který
+-- se přidal pomocí pozvánkového kódu. Hlavní skaut vidí hodnocení všech
+-- skautů svého klubu, běžný skaut jen svoje vlastní (stejně jako dřív).
+CREATE TABLE IF NOT EXISTS clubs (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  invite_code TEXT UNIQUE NOT NULL,
+  created_by INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   first_name TEXT,
@@ -29,12 +70,17 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'skaut',
+  club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL,
   is_demo_team BOOLEAN NOT NULL DEFAULT false,
   verified BOOLEAN NOT NULL DEFAULT false,
   verification_code TEXT,
   verification_expires BIGINT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Appka už dřív běžela bez sloupce club_id — ADD COLUMN IF NOT EXISTS zajistí,
+-- že se bezpečně doplní i do existující produkční databáze bez club_id.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL;
 
 -- 'players' je od verze se "sdílenou databází hráčů" jen ZÁKLADNÍ IDENTITA hráče
 -- (jméno, pozice, věk, klub...) — společná pro všechny scouty/kluby v appce, aby se
@@ -509,18 +555,24 @@ async function seedIfEmpty() {
   try {
     await client.query("BEGIN");
 
+    // ---------- Demo klub ----------
+    // Oba demo účty patří do stejného klubu — Jana je hlavní skaut (vidí
+    // hodnocení celého klubu), Petr běžný skaut (vidí jen svoje vlastní).
+    const demoClub = await createClub(client, "Demo skautský klub", null);
+
     // ---------- Demo uživatelé ----------
     // Hesla jsou stejná jako dřív (heslo123), hashovaná bcryptem.
     const petrHash = bcrypt.hashSync("heslo123", 10);
     const janaHash = bcrypt.hashSync("heslo123", 10);
     const { rows: userRows } = await client.query(
-      `INSERT INTO users (first_name, last_name, name, email, password_hash, role, is_demo_team, verified)
+      `INSERT INTO users (first_name, last_name, name, email, password_hash, role, club_id, is_demo_team, verified)
        VALUES
-        ('Petr', 'Novák', 'Petr Novák', 'petr@scoutos.cz', $1, 'skaut', true, true),
-        ('Jana', 'Bartošová', 'Jana Bartošová', 'jana@scoutos.cz', $2, 'head_of_scouting', true, true)
+        ('Petr', 'Novák', 'Petr Novák', 'petr@scoutos.cz', $1, 'skaut', $3, true, true),
+        ('Jana', 'Bartošová', 'Jana Bartošová', 'jana@scoutos.cz', $2, 'hlavni_skaut', $3, true, true)
        RETURNING id, email`,
-      [petrHash, janaHash]
+      [petrHash, janaHash, demoClub.id]
     );
+    await client.query("UPDATE clubs SET created_by = (SELECT id FROM users WHERE email = 'jana@scoutos.cz') WHERE id = $1", [demoClub.id]);
     console.log("Vytvořeni demo uživatelé:", userRows.map((u) => u.email).join(", "));
 
     // ---------- Demo hráči (sdílené jádro — vidí je úplně každý účet) ----------
@@ -652,9 +704,48 @@ async function migrateOwnerDataToEvaluations() {
   console.log(`Migrace dokončena — vytvořeno ${migrated} hodnocení.`);
 }
 
+// ---------- Jednorázová migrace: doplnění klubů existujícím účtům ----------
+// Appka dřív neznala koncept klubu — každý účet byl úplně samostatný. Tahle
+// migrace běží při KAŽDÉM startu, ale je bezpečná (idempotentní): řeší jen
+// uživatele, kteří ještě club_id nemají, takže se nikdy nic nezduplikuje.
+// Starý sloupec role 'head_of_scouting' (z dřívějška) se zároveň přejmenuje
+// na 'hlavni_skaut', aby appka napříč kódem používala jen dvě hodnoty role:
+// 'hlavni_skaut' a 'skaut'.
+async function migrateUsersToClubs() {
+  await pool.query("UPDATE users SET role = 'hlavni_skaut' WHERE role = 'head_of_scouting'");
+
+  const { rows: orphanUsers } = await pool.query(
+    "SELECT id, first_name, last_name, name, role, is_demo_team FROM users WHERE club_id IS NULL ORDER BY id"
+  );
+  if (orphanUsers.length === 0) return;
+  console.log(`Migrace klubů: ${orphanUsers.length} účtů bez klubu, zakládám jim kluby...`);
+
+  // Demo účty (is_demo_team) patřily odjakživa k sobě (ukazují koncept víc
+  // skautů v jednom klubu) — i po migraci je dáme do jednoho společného
+  // demo klubu, místo aby z nich vznikly samostatné jednočlenné kluby.
+  const demoOrphans = orphanUsers.filter((u) => u.is_demo_team);
+  if (demoOrphans.length > 0) {
+    const head = demoOrphans.find((u) => u.role === "hlavni_skaut") || demoOrphans[0];
+    const demoClub = await createClub(pool, "Demo skautský klub", head.id);
+    for (const u of demoOrphans) {
+      const role = u.id === head.id ? "hlavni_skaut" : u.role === "hlavni_skaut" ? "hlavni_skaut" : "skaut";
+      await pool.query("UPDATE users SET club_id = $1, role = $2 WHERE id = $3", [demoClub.id, role, u.id]);
+    }
+  }
+
+  const regularOrphans = orphanUsers.filter((u) => !u.is_demo_team);
+  for (const u of regularOrphans) {
+    const clubName = `Klub – ${u.name || `${u.first_name} ${u.last_name}`}`;
+    const club = await createClub(pool, clubName, u.id);
+    await pool.query("UPDATE users SET club_id = $1, role = 'hlavni_skaut' WHERE id = $2", [club.id, u.id]);
+  }
+  console.log("Migrace klubů dokončena.");
+}
+
 export async function initDb() {
   await pool.query(SCHEMA_SQL);
   await seedIfEmpty();
   await migrateOwnerDataToEvaluations();
   await upgradeDemoAnalytics();
+  await migrateUsersToClubs();
 }

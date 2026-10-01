@@ -11,6 +11,7 @@ import ValueRadar from "./pages/ValueRadar.jsx";
 import LiveTagging from "./pages/LiveTagging.jsx";
 import AddPlayer from "./pages/AddPlayer.jsx";
 import Login from "./pages/Login.jsx";
+import Club from "./pages/Club.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -19,6 +20,7 @@ const NAV = [
   { to: "/pridat-hrace", label: "+ Přidat hráče" },
   { to: "/hrac/1", label: "Player Profile (demo)" },
   { to: "/tagovani", label: "Live Tagging" },
+  { to: "/klub", label: "Klub" },
 ];
 
 // Chrání trasu — bez přihlášení pošle na /prihlaseni a pamatuje si, kam se
@@ -110,6 +112,7 @@ function AppRoutes() {
       <Route path="/hrac/:id" element={<ProtectedRoute><PlayerProfile /></ProtectedRoute>} />
       <Route path="/hrac/:id/statistiky" element={<ProtectedRoute><PlayerStatsForm /></ProtectedRoute>} />
       <Route path="/tagovani" element={<ProtectedRoute><LiveTagging /></ProtectedRoute>} />
+      <Route path="/klub" element={<ProtectedRoute><Club /></ProtectedRoute>} />
     </Routes>
   );
 }
