@@ -182,32 +182,50 @@ export default function PlayerSearch() {
                         </Link>
                       </div>
                       <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>
-                        {p.position} — {p.club} — {p.age} let — {p.marketValue.toFixed(1)}M €
+                        {p.position} — {p.club} — {p.age} let{p.hasMyEvaluation ? ` — ${p.marketValue.toFixed(1)}M €` : ""}
                       </div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setExpanded(isExpanded ? null : p.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "6px 12px",
-                      borderRadius: 4,
-                      border: "none",
-                      cursor: "pointer",
-                      background: `${scoreColor(score)}1A`,
-                      color: scoreColor(score),
-                      fontFamily: fontMono,
-                      fontWeight: 700,
-                      fontSize: 15,
-                    }}
-                  >
-                    {score}
-                    <ChevronDown size={13} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
-                  </button>
+                  {p.hasMyEvaluation ? (
+                    <button
+                      onClick={() => setExpanded(isExpanded ? null : p.id)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "6px 12px",
+                        borderRadius: 4,
+                        border: "none",
+                        cursor: "pointer",
+                        background: `${scoreColor(score)}1A`,
+                        color: scoreColor(score),
+                        fontFamily: fontMono,
+                        fontWeight: 700,
+                        fontSize: 15,
+                      }}
+                    >
+                      {score}
+                      <ChevronDown size={13} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
+                    </button>
+                  ) : (
+                    <Link
+                      to={`/hrac/${p.id}/statistiky`}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 4,
+                        background: C.lineSoft,
+                        color: C.inkSoft,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        textDecoration: "none",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Nehodnoceno — zadat
+                    </Link>
+                  )}
                 </div>
-                {isExpanded && (
+                {isExpanded && p.hasMyEvaluation && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.lineSoft}`, fontSize: 13, color: C.inkSoft }}>
                     Proč: {p.reason[style]}.
                   </div>

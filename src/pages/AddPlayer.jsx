@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { UserPlus, ArrowLeft } from "lucide-react";
+import { UserPlus, ArrowLeft, Search, Loader2 } from "lucide-react";
 import { apiFetch } from "../api.js";
 
 const C = {
@@ -49,7 +49,50 @@ export default function AddPlayer() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  // ---------- Našeptávač existujících hráčů podle jména ----------
+  // Hráči jsou sdílená databáze napříč celou appkou — než scout založí nového,
+  // zkontrolujeme, jestli už tam náhodou není, aby nevznikaly duplicity.
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [claimingId, setClaimingId] = useState(null);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    const name = form.name.trim();
+    clearTimeout(debounceRef.current);
+    if (name.length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      setSuggestLoading(true);
+      apiFetch(`/api/players/search?name=${encodeURIComponent(name)}`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then(setSuggestions)
+        .catch(() => setSuggestions([]))
+        .finally(() => setSuggestLoading(false));
+    }, 350);
+    return () => clearTimeout(debounceRef.current);
+  }, [form.name]);
+
   const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleUseExisting = (player) => {
+    setClaimingId(player.id);
+    setError(null);
+    apiFetch(`/api/players/${player.id}/evaluate`, { method: "POST" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Server odpověděl chybou.");
+        return res.json();
+      })
+      .then((created) => {
+        navigate(`/hrac/${created.id}/statistiky`);
+      })
+      .catch(() => {
+        setError("Nepodařilo se přidat hodnocení k existujícímu hráči.");
+        setClaimingId(null);
+      });
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -95,7 +138,40 @@ export default function AddPlayer() {
         <form onSubmit={handleSubmit} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 24 }}>
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Jméno a příjmení *</label>
-            <input style={inputStyle} value={form.name} onChange={update("name")} placeholder="např. Jan Novák" required />
+            <input style={inputStyle} value={form.name} onChange={update("name")} placeholder="např. Jan Novák" required autoComplete="off" />
+
+            {suggestLoading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: C.inkFaint }}>
+                <Loader2 size={12} /> Hledám podobné hráče…
+              </div>
+            )}
+
+            {!suggestLoading && suggestions.length > 0 && (
+              <div style={{ marginTop: 10, border: `1px solid ${C.line}`, borderRadius: 5, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", background: "#FAFBF8", fontSize: 11, color: C.inkFaint, fontWeight: 600 }}>
+                  <Search size={12} /> Tenhle hráč už možná v databázi je — nezaložíš duplicitu?
+                </div>
+                {suggestions.map((s) => (
+                  <div
+                    key={s.id}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 10px", borderTop: `1px solid ${C.line}` }}
+                  >
+                    <div style={{ fontSize: 13 }}>
+                      <strong>{s.name}</strong>
+                      <span style={{ color: C.inkFaint }}> — {s.position}{s.age ? `, ${s.age} let` : ""}{s.club ? `, ${s.club}` : ""}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUseExisting(s)}
+                      disabled={claimingId === s.id}
+                      style={{ flexShrink: 0, padding: "5px 10px", fontSize: 12, fontWeight: 600, border: `1px solid ${C.turf}`, color: C.turf, background: "#fff", borderRadius: 4, cursor: claimingId === s.id ? "default" : "pointer" }}
+                    >
+                      {claimingId === s.id ? "Přidávám…" : "Použít tohoto hráče"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>

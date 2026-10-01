@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 'players' je od verze se "sdílenou databází hráčů" jen ZÁKLADNÍ IDENTITA hráče
+-- (jméno, pozice, věk, klub...) — společná pro všechny scouty/kluby v appce, aby se
+-- stejný hráč nezakládal víckrát. owner_id/is_shared_demo/scores/reason/analytics/
+-- market_value/risk_level/minutes_tracked sloupce zůstávají z historických důvodů
+-- (starší nasazení) a slouží jen jako zdroj pro jednorázovou migraci níže — appka
+-- je dál nečte ani nezapisuje, veškerá SUBJEKTIVNÍ data scouta (skóre, tržní odhad,
+-- riziko, rozklad, poznámky...) žijí v 'player_evaluations'.
 CREATE TABLE IF NOT EXISTS players (
   id SERIAL PRIMARY KEY,
   owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -55,6 +62,23 @@ CREATE TABLE IF NOT EXISTS players (
   reason JSONB NOT NULL DEFAULT '{}',
   analytics JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Soukromé hodnocení hráče jedním konkrétním scoutem/účtem. Jeden hráč (players)
+-- může mít 0 až N řádků zde — každý scout vidí a upravuje jen svůj vlastní.
+CREATE TABLE IF NOT EXISTS player_evaluations (
+  id SERIAL PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  market_value NUMERIC DEFAULT 0,
+  risk_level TEXT DEFAULT 'low',
+  minutes_tracked INTEGER DEFAULT 0,
+  scores JSONB NOT NULL DEFAULT '{"pressing":50,"possession":50,"defensive":50}',
+  reason JSONB NOT NULL DEFAULT '{}',
+  analytics JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (player_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -487,19 +511,30 @@ async function seedIfEmpty() {
     );
     console.log("Vytvořeni demo uživatelé:", userRows.map((u) => u.email).join(", "));
 
-    // ---------- Demo hráči (sdílená demo data, viditelná pro isDemoTeam účty) ----------
+    // ---------- Demo hráči (sdílené jádro — vidí je úplně každý účet) ----------
+    // Subjektivní hodnocení (skóre, tržní odhad, riziko, rozklad...) dostane svůj
+    // vlastní řádek v player_evaluations pro KAŽDÉHO demo scouta zvlášť, aby od
+    // prvního dne fungoval model "sdílený hráč, soukromé hodnocení".
     const playerIds = [];
     for (const p of DEMO_PLAYERS) {
       const { rows } = await client.query(
-        `INSERT INTO players (owner_id, is_shared_demo, name, position, age, club, market_value, contract_until, agent, foot, height, minutes_tracked, risk_level, scores, reason, analytics)
-         VALUES (NULL, true, $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        `INSERT INTO players (owner_id, is_shared_demo, name, position, age, club, contract_until, agent, foot, height)
+         VALUES (NULL, true, $1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING id`,
-        [
-          p.name, p.position, p.age, p.club || "", p.marketValue || 0, p.contractUntil || "", p.agent || "", p.foot || "", p.height || "",
-          p.minutesTracked || 0, p.riskLevel || "low", JSON.stringify(p.scores), JSON.stringify(p.reason), JSON.stringify(p.analytics || {}),
-        ]
+        [p.name, p.position, p.age, p.club || "", p.contractUntil || "", p.agent || "", p.foot || "", p.height || ""]
       );
-      playerIds.push(rows[0].id);
+      const playerId = rows[0].id;
+      playerIds.push(playerId);
+      for (const u of userRows) {
+        await client.query(
+          `INSERT INTO player_evaluations (player_id, user_id, market_value, risk_level, minutes_tracked, scores, reason, analytics)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            playerId, u.id, p.marketValue || 0, p.riskLevel || "low", p.minutesTracked || 0,
+            JSON.stringify(p.scores), JSON.stringify(p.reason), JSON.stringify(p.analytics || {}),
+          ]
+        );
+      }
     }
     const kovarId = playerIds[0];
 
@@ -558,20 +593,56 @@ async function seedIfEmpty() {
 // Doplní nové/rozšířené analytické sekce (fyzická data, technické metriky, mentální
 // profil, breakdown, klipy, historie...) i do databáze, která už dřív byla naseedovaná
 // starší, chudší verzí dat. Běží při KAŽDÉM startu appky, ale je to bezpečné spouštět
-// opakovaně (idempotentní) — jen "domerguje" JSONB sloupec `analytics` podle jména
-// hráče, nic nemaže a neduplikuje.
+// opakovaně (idempotentní) — jen "domerguje" JSONB sloupec `analytics` u KAŽDÉHO
+// hodnocení daného demo hráče (napříč všemi účty, co ho mají ohodnoceného), nic
+// nemaže a neduplikuje.
 async function upgradeDemoAnalytics() {
   for (const p of DEMO_PLAYERS) {
     await pool.query(
-      `UPDATE players SET analytics = analytics || $1::jsonb WHERE name = $2 AND is_shared_demo = true`,
+      `UPDATE player_evaluations SET analytics = analytics || $1::jsonb
+       WHERE analytics IS NOT NULL AND player_id IN (SELECT id FROM players WHERE name = $2 AND is_shared_demo = true)`,
       [JSON.stringify(p.analytics || {}), p.name]
     );
   }
   console.log("Analytická data demo hráčů zkontrolována/aktualizována.");
 }
 
+// ---------- Jednorázová migrace: starý model (hráč = 1 účet) → nový model ----------
+// (hráč = sdílené jádro + N soukromých hodnocení). Spouští se při KAŽDÉM startu, ale
+// je to bezpečné — pokud `player_evaluations` už něco obsahuje, migrace se přeskočí,
+// takže se nikdy nic nezduplikuje. Staré sloupce na `players` (scores/reason/analytics/
+// market_value/risk_level/minutes_tracked) se po migraci dál nepoužívají, ale záměrně
+// je nemažeme (žádné riziko ztráty dat, kdyby bylo potřeba se vrátit).
+async function migrateOwnerDataToEvaluations() {
+  const { rows: countRows } = await pool.query("SELECT COUNT(*)::int AS n FROM player_evaluations");
+  if (countRows[0].n > 0) return; // appka už na novém modelu běžela — nic dalšího dělat netřeba
+
+  const { rows: players } = await pool.query("SELECT * FROM players");
+  if (players.length === 0) return; // prázdná databáze — seedIfEmpty se o vše postará
+
+  console.log(`Migrace ${players.length} existujících hráčů na model sdílené databáze...`);
+  const { rows: demoUsers } = await pool.query("SELECT id FROM users WHERE is_demo_team = true");
+
+  let migrated = 0;
+  for (const p of players) {
+    // Hráč založený konkrétním scoutem → jeho dosavadní data se stanou jeho hodnocením.
+    const targets = p.owner_id ? [p.owner_id] : p.is_shared_demo ? demoUsers.map((u) => u.id) : [];
+    for (const userId of targets) {
+      await pool.query(
+        `INSERT INTO player_evaluations (player_id, user_id, market_value, risk_level, minutes_tracked, scores, reason, analytics)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (player_id, user_id) DO NOTHING`,
+        [p.id, userId, p.market_value || 0, p.risk_level || "low", p.minutes_tracked || 0, JSON.stringify(p.scores || {}), JSON.stringify(p.reason || {}), JSON.stringify(p.analytics || {})]
+      );
+      migrated++;
+    }
+  }
+  console.log(`Migrace dokončena — vytvořeno ${migrated} hodnocení.`);
+}
+
 export async function initDb() {
   await pool.query(SCHEMA_SQL);
   await seedIfEmpty();
+  await migrateOwnerDataToEvaluations();
   await upgradeDemoAnalytics();
 }
