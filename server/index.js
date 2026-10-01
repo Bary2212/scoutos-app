@@ -356,7 +356,7 @@ app.patch("/api/players/:id", async (req, res) => {
 // stránky, skóre, riziko...) do MÉHO řádku v player_evaluations. Pokud ještě
 // neexistuje, založí se. Klíče, které nejsou v těle požadavku, zůstanou
 // zachované (jsonb merge u analytiky), takže se dá zadávat/upravovat postupně.
-const ANALYTICS_FIELDS = ["breakdown", "physicalData", "technicalMetrics", "mentalProfile", "strengths", "weaknesses"];
+const ANALYTICS_FIELDS = ["breakdown", "physicalData", "technicalMetrics", "mentalProfile", "strengths", "weaknesses", "careerHistory"];
 const EVAL_SCALAR_FIELDS = { marketValue: "market_value", riskLevel: "risk_level", minutesTracked: "minutes_tracked" };
 const EVAL_JSON_FIELDS = { scores: "scores", reason: "reason" };
 

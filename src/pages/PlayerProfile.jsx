@@ -979,6 +979,47 @@ export default function PlayerProfile() {
       .catch(() => {});
   };
 
+  // ---------- Kariérní historie — ruční zápis (přestupy/zranění/milníky) ----------
+  // Ukládá se do MÉHO hodnocení (player_evaluations.analytics.careerHistory), takže
+  // u nově zadaných hráčů funguje úplně stejně jako u demo hráčů — stačí si záznamy
+  // sám zapsat. JSONB merge nahrazuje celé pole najednou, takže se vždy posílá celý
+  // aktualizovaný seznam.
+  const [newHistoryEntry, setNewHistoryEntry] = useState({ date: "", category: "transfer", label: "", days: "" });
+  const [savingHistory, setSavingHistory] = useState(false);
+
+  const saveHistory = (updated) => {
+    setSavingHistory(true);
+    return apiFetch(`/api/players/${id}/analytics`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ careerHistory: updated }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("bad response");
+        setTimeline(updated);
+      })
+      .finally(() => setSavingHistory(false));
+  };
+
+  const submitHistoryEntry = (e) => {
+    e.preventDefault();
+    if (!newHistoryEntry.date.trim() || !newHistoryEntry.label.trim()) return;
+    const entry = {
+      id: Date.now(),
+      date: newHistoryEntry.date.trim(),
+      category: newHistoryEntry.category,
+      label: newHistoryEntry.label.trim(),
+      ...(newHistoryEntry.category === "injury" && newHistoryEntry.days ? { days: Number(newHistoryEntry.days) || 0 } : {}),
+    };
+    saveHistory([...timeline, entry])
+      .then(() => setNewHistoryEntry({ date: "", category: "transfer", label: "", days: "" }))
+      .catch(() => {});
+  };
+
+  const deleteHistoryEntry = (entryId) => {
+    saveHistory(timeline.filter((t) => t.id !== entryId)).catch(() => {});
+  };
+
   const startEditing = () => {
     setEditForm({
       name: player.name || "",
@@ -1047,7 +1088,7 @@ export default function PlayerProfile() {
     ...(clips.length > 0 ? ["Video"] : []),
     "Reporty skautů",
     "Diskuze",
-    ...(timeline.length > 0 ? ["Historie"] : []),
+    "Historie",
     ...(similarPlayers.length > 0 ? ["Podobní hráči"] : []),
   ];
 
@@ -1683,15 +1724,26 @@ export default function PlayerProfile() {
                   ))}
                 </div>
 
-                <div style={{ position: "relative", paddingLeft: 20 }}>
+                <div style={{ position: "relative", paddingLeft: 20, marginBottom: 20 }}>
                   <div style={{ position: "absolute", left: 4, top: 4, bottom: 4, width: 1, background: C.line }} />
                   {filteredHistory.map((t) => {
                     const dotColor = t.category === "injury" ? C.red : t.category === "milestone" ? C.amber : C.turf;
                     return (
                       <div key={t.id} style={{ position: "relative", paddingBottom: 22 }}>
                         <div style={{ position: "absolute", left: -20, top: 3, width: 9, height: 9, borderRadius: "50%", background: dotColor }} />
-                        <div style={{ fontSize: 12, color: C.inkFaint }}>{t.date}</div>
-                        <div style={{ fontSize: 14, color: C.ink, marginTop: 2 }}>{t.label}</div>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 12, color: C.inkFaint }}>{t.date}{t.days ? ` — ${t.days} dní` : ""}</div>
+                            <div style={{ fontSize: 14, color: C.ink, marginTop: 2 }}>{t.label}</div>
+                          </div>
+                          <button
+                            onClick={() => deleteHistoryEntry(t.id)}
+                            title="Smazat"
+                            style={{ background: "none", border: "none", color: C.inkFaint, cursor: "pointer", padding: 2, flexShrink: 0 }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1699,6 +1751,53 @@ export default function PlayerProfile() {
                     <div style={{ fontSize: 13, color: C.inkFaint, paddingBottom: 10 }}>Žádné záznamy v této kategorii.</div>
                   )}
                 </div>
+
+                {/* ---------- Formulář pro ruční zápis záznamu do historie ---------- */}
+                <form onSubmit={submitHistoryEntry} style={{ borderTop: `1px solid ${C.lineSoft}`, paddingTop: 18 }}>
+                  <SectionLabel>Přidat záznam</SectionLabel>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                    <select
+                      value={newHistoryEntry.category}
+                      onChange={(e) => setNewHistoryEntry((f) => ({ ...f, category: e.target.value }))}
+                      style={{ padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    >
+                      <option value="transfer">Přestup</option>
+                      <option value="injury">Zranění</option>
+                      <option value="milestone">Milník</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Datum (např. Srpen 2026)"
+                      value={newHistoryEntry.date}
+                      onChange={(e) => setNewHistoryEntry((f) => ({ ...f, date: e.target.value }))}
+                      style={{ width: 170, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Popis (např. Přestup do FC Test)"
+                      value={newHistoryEntry.label}
+                      onChange={(e) => setNewHistoryEntry((f) => ({ ...f, label: e.target.value }))}
+                      style={{ flex: 1, minWidth: 180, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                    {newHistoryEntry.category === "injury" && (
+                      <input
+                        type="number"
+                        placeholder="Počet dní mimo hru"
+                        value={newHistoryEntry.days}
+                        onChange={(e) => setNewHistoryEntry((f) => ({ ...f, days: e.target.value }))}
+                        style={{ width: 150, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                      />
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingHistory || !newHistoryEntry.date.trim() || !newHistoryEntry.label.trim()}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: savingHistory ? "default" : "pointer", opacity: savingHistory || !newHistoryEntry.date.trim() || !newHistoryEntry.label.trim() ? 0.7 : 1 }}
+                  >
+                    {savingHistory ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+                    {savingHistory ? "Ukládám…" : "Přidat záznam"}
+                  </button>
+                </form>
               </div>
             )}
 
