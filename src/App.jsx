@@ -7,6 +7,7 @@ import PlayerProfile from "./pages/PlayerProfile.jsx";
 import PlayerStatsForm from "./pages/PlayerStatsForm.jsx";
 import PlayerProfileBasic from "./pages/PlayerProfileBasic.jsx";
 import PlayerSearch from "./pages/PlayerSearch.jsx";
+import ValueRadar from "./pages/ValueRadar.jsx";
 import LiveTagging from "./pages/LiveTagging.jsx";
 import AddPlayer from "./pages/AddPlayer.jsx";
 import Login from "./pages/Login.jsx";
@@ -14,6 +15,7 @@ import Login from "./pages/Login.jsx";
 const NAV = [
   { to: "/", label: "Dashboard" },
   { to: "/hledani", label: "Vyhledávání" },
+  { to: "/radar", label: "Radar hodnoty" },
   { to: "/pridat-hrace", label: "+ Přidat hráče" },
   { to: "/hrac/1", label: "Player Profile (demo)" },
   { to: "/tagovani", label: "Live Tagging" },
@@ -102,6 +104,7 @@ function AppRoutes() {
       <Route path="/prihlaseni" element={<Login />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/hledani" element={<ProtectedRoute><PlayerSearch /></ProtectedRoute>} />
+      <Route path="/radar" element={<ProtectedRoute><ValueRadar /></ProtectedRoute>} />
       <Route path="/pridat-hrace" element={<ProtectedRoute><AddPlayer /></ProtectedRoute>} />
       <Route path="/hrac-basic/:id" element={<ProtectedRoute><PlayerProfileBasic /></ProtectedRoute>} />
       <Route path="/hrac/:id" element={<ProtectedRoute><PlayerProfile /></ProtectedRoute>} />

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
+import { computePlayerScore } from "../lib/playerScore.js";
 
 // Výchozí (demo) profil hráče — použije se jako placeholder, dokud nedorazí
 // skutečná data ze serveru pro zvoleného hráče (podle :id v URL).
@@ -986,13 +987,9 @@ export default function PlayerProfile() {
   // Jen Tomáš Kovář má v datech kompletní "styleContributions" (kontribuce metrik
   // podle filozofie klubu). U ostatních hráčů se stejný "Rozklad skóre" dá zobrazit
   // i bez toho — kontribuce se pak dopočítá přímo z percentilu dané metriky.
-  const hasAnalytics = breakdown.length > 0;
-  const contributions = hasAnalytics
-    ? styleContributions
-      ? styleContributions[style]
-      : Object.fromEntries(breakdown.map((s) => [s.id, Math.round((s.percentile - 50) / 6)]))
-    : null;
-  const score = hasAnalytics ? Math.max(0, Math.min(100, BASE_SCORE + Object.values(contributions).reduce((sum, v) => sum + v, 0))) : null;
+  // Výpočet je sdílený s Radarem hodnoty (src/lib/playerScore.js), aby obě
+  // stránky počítaly skóre stejně.
+  const { hasAnalytics, score, contributions } = computePlayerScore({ breakdown, styleContributions }, style);
 
   const ranked = hasAnalytics ? [...breakdown].sort((a, b) => contributions[b.id] - contributions[a.id]) : [];
   const topPositive = ranked[0] || null;
