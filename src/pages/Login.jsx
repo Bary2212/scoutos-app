@@ -34,6 +34,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [code, setCode] = useState("");
 
   const [error, setError] = useState(null);
@@ -86,7 +87,7 @@ export default function Login() {
 
     setSubmitting(true);
     try {
-      await register(firstName, lastName, email, password, passwordConfirm);
+      await register(firstName, lastName, email, password, passwordConfirm, inviteCode);
       setMode("verify");
       setInfo("Poslali jsme ti na e-mail ověřovací kód. Zadej ho níže.");
     } catch (err) {
@@ -167,6 +168,14 @@ export default function Login() {
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} style={inputStyle} />
             <label style={labelStyle}>Potvrzení hesla</label>
             <input type="password" value={passwordConfirm} onChange={(e) => setPasswordConfirm(e.target.value)} placeholder="••••••••" required minLength={8} style={inputStyle} />
+            <label style={labelStyle}>Pozvánkový kód klubu (nepovinné)</label>
+            <input
+              type="text"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="Např. KA7CR6PT — vyplň, jen pokud se přidáváš k existujícímu klubu"
+              style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 1 }}
+            />
             <button type="submit" disabled={submitting} style={buttonStyle(submitting)}>
               {submitting ? "Chvilku…" : "Vytvořit účet"}
             </button>

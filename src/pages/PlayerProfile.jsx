@@ -870,6 +870,22 @@ export default function PlayerProfile() {
   const [mentalProfile, setMentalProfile] = useState(null);
   const [strengths, setStrengths] = useState([]);
   const [weaknesses, setWeaknesses] = useState([]);
+  const [teamEvaluations, setTeamEvaluations] = useState([]);
+  const [teamEvalLoading, setTeamEvalLoading] = useState(false);
+
+  // Hodnocení ostatních skautů klubu u tohoto hráče — vidí jen hlavní skaut.
+  useEffect(() => {
+    if (user?.role !== "hlavni_skaut") {
+      setTeamEvaluations([]);
+      return;
+    }
+    setTeamEvalLoading(true);
+    apiFetch(`/api/players/${id}/evaluations`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows) => setTeamEvaluations(rows.filter((r) => !r.isMe)))
+      .catch(() => setTeamEvaluations([]))
+      .finally(() => setTeamEvalLoading(false));
+  }, [id, user?.role]);
 
   useEffect(() => {
     setNotFound(false);
@@ -1529,6 +1545,38 @@ export default function PlayerProfile() {
                         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: C.inkSoft, lineHeight: 1.8 }}>
                           {weaknesses.map((s, i) => <li key={i}>{s}</li>)}
                         </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {user?.role === "hlavni_skaut" && (
+                  <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
+                    <SectionLabel>Hodnocení skautů klubu</SectionLabel>
+                    {teamEvalLoading && <p style={{ fontSize: 13, color: C.inkFaint, margin: "8px 0 0" }}>Načítám…</p>}
+                    {!teamEvalLoading && teamEvaluations.length === 0 && (
+                      <p style={{ fontSize: 13, color: C.inkFaint, margin: "8px 0 0" }}>
+                        Nikdo jiný z tvého klubu tohoto hráče ještě neohodnotil.
+                      </p>
+                    )}
+                    {!teamEvalLoading && teamEvaluations.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                        {teamEvaluations.map((ev) => (
+                          <div key={ev.userId} style={{ border: `1px solid ${C.lineSoft}`, borderRadius: 6, padding: "12px 14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>{ev.scoutName}</span>
+                              <span style={{ fontSize: 11, color: C.inkFaint }}>tržní odhad {Number(ev.marketValue).toFixed(1)}M €</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                              {STYLES.map((s) => (
+                                <div key={s.id} style={{ fontSize: 12 }}>
+                                  <span style={{ color: C.inkFaint }}>{s.label}: </span>
+                                  <span style={{ fontFamily: fontMono, fontWeight: 700, color: C.turf }}>{ev.scores?.[s.id]}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
