@@ -790,6 +790,13 @@ function CompareTable({ base, baseScore, others, breakdown }) {
             </div>
             {others.map((p) => {
               const otherVal = p.metrics[stat.id];
+              if (otherVal === undefined) {
+                return (
+                  <div key={p.id} style={{ padding: "10px 12px", fontSize: 12, color: C.inkFaint }}>
+                    nezadáno
+                  </div>
+                );
+              }
               const color = otherVal > baseVal ? C.turf : otherVal < baseVal ? C.red : C.inkSoft;
               return (
                 <div key={p.id} style={{ padding: "10px 12px" }}>
@@ -899,7 +906,8 @@ export default function PlayerProfile() {
         setMatchPerformances(data.matchPerformances || []);
         setClutchData(data.clutchData || null);
         setInjuryRisk(data.injuryRisk || null);
-        setSimilarPlayers(data.similarPlayersData || []);
+        // Podobní hráči se už nepočítají z demo pole — viz samostatný efekt níže,
+        // který volá /api/players/:id/similar a počítá se SKUTEČNOU databází.
         setPhysicalData(data.physicalData || null);
         setTechnicalMetrics(data.technicalMetrics || null);
         setMentalProfile(data.mentalProfile || null);
@@ -1020,6 +1028,56 @@ export default function PlayerProfile() {
     saveHistory(timeline.filter((t) => t.id !== entryId)).catch(() => {});
   };
 
+  // ---------- Video klipy — ruční zápis (odkaz + popisek) ----------
+  // Stejný princip jako historie: ukládá se do MÉHO hodnocení, takže funguje
+  // u každého hráče hned, bez čekání na budoucí napojení na Hudl/Wyscout/Veo.
+  const [newClip, setNewClip] = useState({ title: "", tag: "", duration: "", url: "" });
+  const [savingClip, setSavingClip] = useState(false);
+
+  const saveClips = (updated) => {
+    setSavingClip(true);
+    return apiFetch(`/api/players/${id}/analytics`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clips: updated }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("bad response");
+        setClips(updated);
+      })
+      .finally(() => setSavingClip(false));
+  };
+
+  const submitClip = (e) => {
+    e.preventDefault();
+    if (!newClip.title.trim()) return;
+    const clip = {
+      id: Date.now(),
+      title: newClip.title.trim(),
+      tag: newClip.tag.trim() || null,
+      duration: newClip.duration.trim() || "—",
+      ...(newClip.url.trim() ? { url: newClip.url.trim() } : {}),
+    };
+    saveClips([...clips, clip])
+      .then(() => setNewClip({ title: "", tag: "", duration: "", url: "" }))
+      .catch(() => {});
+  };
+
+  const deleteClip = (clipId) => {
+    saveClips(clips.filter((c) => c.id !== clipId)).catch(() => {});
+  };
+
+  // ---------- Podobní hráči — skutečně dopočítané z databáze (ne demo data) ----------
+  const [similarLoading, setSimilarLoading] = useState(true);
+  useEffect(() => {
+    setSimilarLoading(true);
+    apiFetch(`/api/players/${id}/similar`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setSimilarPlayers)
+      .catch(() => setSimilarPlayers([]))
+      .finally(() => setSimilarLoading(false));
+  }, [id, breakdown]);
+
   const startEditing = () => {
     setEditForm({
       name: player.name || "",
@@ -1083,14 +1141,7 @@ export default function PlayerProfile() {
   const riskBg = { low: C.turfSoft, medium: C.amberSoft, high: C.redSoft }[player.riskLevel];
 
   // Záložky se skládají dynamicky — prázdné sekce appka nenabízí.
-  const tabs = [
-    "Statistiky",
-    ...(clips.length > 0 ? ["Video"] : []),
-    "Reporty skautů",
-    "Diskuze",
-    "Historie",
-    ...(similarPlayers.length > 0 ? ["Podobní hráči"] : []),
-  ];
+  const tabs = ["Statistiky", "Video", "Reporty skautů", "Diskuze", "Historie", "Podobní hráči"];
 
   useEffect(() => {
     setActiveTab("Statistiky");
@@ -1498,36 +1549,102 @@ export default function PlayerProfile() {
                     </button>
                   )}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 20 }}>
                   {clips.map((clip) => {
                     const selected = selectedClips.has(clip.id);
                     const matched = highlightTag ? clip.tag === highlightTag : true;
                     return (
-                      <button
+                      <div
                         key={clip.id}
-                        onClick={() => toggleClip(clip.id)}
                         style={{
                           textAlign: "left",
                           border: `1px solid ${selected ? C.turf : C.line}`,
                           borderRadius: 6,
-                          padding: 0,
                           overflow: "hidden",
                           background: "#fff",
-                          cursor: "pointer",
                           opacity: matched ? 1 : 0.35,
+                          position: "relative",
                         }}
                       >
-                        <div style={{ height: 90, background: selected ? C.turfSoft : C.lineSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Play size={22} color={selected ? C.turf : C.inkFaint} />
-                        </div>
-                        <div style={{ padding: "10px 12px" }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{clip.title}</div>
-                          <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 3 }}>{clip.tag} · {clip.duration}</div>
-                        </div>
-                      </button>
+                        <button
+                          onClick={() => deleteClip(clip.id)}
+                          title="Smazat"
+                          style={{ position: "absolute", top: 6, right: 6, zIndex: 1, background: "rgba(255,255,255,0.9)", border: "none", borderRadius: 4, color: C.inkFaint, cursor: "pointer", padding: 4 }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                        <button onClick={() => toggleClip(clip.id)} style={{ display: "block", width: "100%", textAlign: "left", border: "none", padding: 0, background: "none", cursor: "pointer" }}>
+                          <div style={{ height: 90, background: selected ? C.turfSoft : C.lineSoft, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Play size={22} color={selected ? C.turf : C.inkFaint} />
+                          </div>
+                          <div style={{ padding: "10px 12px" }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>{clip.title}</div>
+                            <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 3 }}>{clip.tag || "bez tagu"} · {clip.duration}</div>
+                          </div>
+                        </button>
+                        {clip.url && (
+                          <a
+                            href={clip.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ display: "block", fontSize: 11, color: C.turf, padding: "0 12px 10px 12px", textDecoration: "none" }}
+                          >
+                            Otevřít odkaz ↗
+                          </a>
+                        )}
+                      </div>
                     );
                   })}
+                  {clips.length === 0 && (
+                    <div style={{ gridColumn: "1 / -1", fontSize: 13, color: C.inkFaint, padding: "8px 0" }}>
+                      Zatím tu nejsou žádné klipy. Přidej odkaz na video (YouTube, Hudl, Veo…) níže.
+                    </div>
+                  )}
                 </div>
+
+                {/* ---------- Formulář pro ruční přidání klipu ---------- */}
+                <form onSubmit={submitClip} style={{ borderTop: `1px solid ${C.lineSoft}`, paddingTop: 18 }}>
+                  <SectionLabel>Přidat klip</SectionLabel>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                    <input
+                      type="text"
+                      placeholder="Název (např. Gól po standardní situaci)"
+                      value={newClip.title}
+                      onChange={(e) => setNewClip((f) => ({ ...f, title: e.target.value }))}
+                      style={{ flex: "1 1 220px", padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Tag (nepovinné)"
+                      value={newClip.tag}
+                      onChange={(e) => setNewClip((f) => ({ ...f, tag: e.target.value }))}
+                      style={{ width: 140, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Délka (např. 0:14)"
+                      value={newClip.duration}
+                      onChange={(e) => setNewClip((f) => ({ ...f, duration: e.target.value }))}
+                      style={{ width: 120, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Odkaz na video (nepovinné)"
+                      value={newClip.url}
+                      onChange={(e) => setNewClip((f) => ({ ...f, url: e.target.value }))}
+                      style={{ flex: "1 1 220px", padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingClip || !newClip.title.trim()}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: savingClip ? "default" : "pointer", opacity: savingClip || !newClip.title.trim() ? 0.7 : 1 }}
+                  >
+                    {savingClip ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+                    {savingClip ? "Ukládám…" : "Přidat klip"}
+                  </button>
+                </form>
               </div>
             )}
 
@@ -1805,8 +1922,18 @@ export default function PlayerProfile() {
               <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 24 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                   <SectionLabel>Statisticky podobní hráči</SectionLabel>
-                  <span style={{ fontSize: 11, color: C.inkFaint }}>vyber až 2 pro porovnání</span>
+                  {similarPlayers.length > 0 && <span style={{ fontSize: 11, color: C.inkFaint }}>vyber až 2 pro porovnání</span>}
                 </div>
+                {similarLoading && (
+                  <div style={{ fontSize: 13, color: C.inkFaint, padding: "12px 0" }}>Počítám podobnost…</div>
+                )}
+                {!similarLoading && similarPlayers.length === 0 && (
+                  <div style={{ fontSize: 13, color: C.inkFaint, padding: "12px 0" }}>
+                    {breakdown.length === 0
+                      ? "Nejdřív zadej statistiky tohoto hráče — podobnost se počítá z rozkladu skóre."
+                      : "Zatím nemáš dost dalších ohodnocených hráčů na stejné pozici pro srovnání. Jakmile jich přibude, objeví se tu automaticky."}
+                  </div>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
                   {similarPlayers.map((p) => {
                     const checked = compareSelected.has(p.id);

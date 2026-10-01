@@ -299,6 +299,76 @@ app.post("/api/players/:id/evaluate", async (req, res) => {
   }
 });
 
+// GET /api/players/:id/similar — skutečně dopočítané ze SDÍLENÉ databáze: porovná
+// rozklad skóre (breakdown) tohoto hráče s rozklady ostatních hráčů stejné pozicové
+// kategorie, které jsem SÁM už ohodnotil (soukromá data jiných scoutů do toho
+// logicky nevstupují). Podobnost = 100 mínus průměrný rozdíl percentilů u společných
+// metrik. Nahrazuje dřívější natvrdo zadaná demo data.
+app.get("/api/players/:id/similar", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    const { rows: baseRows } = await pool.query("SELECT * FROM players WHERE id = $1", [playerId]);
+    const basePlayer = baseRows[0];
+    if (!basePlayer) return res.status(404).json({ error: "Hráč nenalezen." });
+
+    const baseEval = await getMyEvaluation(playerId, req.user.id);
+    const baseBreakdown = baseEval?.analytics?.breakdown || [];
+    if (baseBreakdown.length === 0) return res.json([]);
+
+    const baseCategory = categoryOf(basePlayer.position);
+    const { rows: candidates } = await pool.query(
+      `SELECT p.*, e.market_value, e.risk_level, e.scores, e.analytics
+       FROM players p
+       JOIN player_evaluations e ON e.player_id = p.id AND e.user_id = $1
+       WHERE p.id != $2`,
+      [req.user.id, playerId]
+    );
+
+    const scored = candidates
+      .filter((c) => categoryOf(c.position) === baseCategory)
+      .map((c) => {
+        const candidateBreakdown = c.analytics?.breakdown || [];
+        const candidateById = Object.fromEntries(candidateBreakdown.map((s) => [s.id, s]));
+        const commonIds = baseBreakdown.map((s) => s.id).filter((id) => candidateById[id] !== undefined);
+        if (commonIds.length === 0) return null;
+
+        const avgDiff =
+          commonIds.reduce((sum, id) => {
+            const baseStat = baseBreakdown.find((s) => s.id === id);
+            return sum + Math.abs(baseStat.percentile - candidateById[id].percentile);
+          }, 0) / commonIds.length;
+        const similarity = Math.max(0, Math.round(100 - avgDiff));
+
+        const score = c.scores?.pressing ?? EMPTY_SCORES.pressing;
+
+        const metrics = Object.fromEntries(candidateBreakdown.map((s) => [s.id, s.percentile]));
+        const marketValue = Number(c.market_value) || 0;
+        const baseMarketValue = baseEval ? Number(baseEval.market_value) || 0 : 0;
+        const delta = marketValue - baseMarketValue;
+        const priceDelta = `${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}M €`;
+
+        return {
+          id: c.id,
+          name: c.name,
+          similarity,
+          priceDelta,
+          age: c.age,
+          marketValue: `${marketValue.toFixed(1)}M €`,
+          score,
+          risk: c.risk_level || "low",
+          metrics,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, 5);
+
+    res.json(scored);
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se dopočítat podobné hráče.", detail: err.message });
+  }
+});
+
 app.patch("/api/players/:id", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [Number(req.params.id)]);
@@ -356,7 +426,7 @@ app.patch("/api/players/:id", async (req, res) => {
 // stránky, skóre, riziko...) do MÉHO řádku v player_evaluations. Pokud ještě
 // neexistuje, založí se. Klíče, které nejsou v těle požadavku, zůstanou
 // zachované (jsonb merge u analytiky), takže se dá zadávat/upravovat postupně.
-const ANALYTICS_FIELDS = ["breakdown", "physicalData", "technicalMetrics", "mentalProfile", "strengths", "weaknesses", "careerHistory"];
+const ANALYTICS_FIELDS = ["breakdown", "physicalData", "technicalMetrics", "mentalProfile", "strengths", "weaknesses", "careerHistory", "clips"];
 const EVAL_SCALAR_FIELDS = { marketValue: "market_value", riskLevel: "risk_level", minutesTracked: "minutes_tracked" };
 const EVAL_JSON_FIELDS = { scores: "scores", reason: "reason" };
 
