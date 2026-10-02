@@ -822,6 +822,15 @@ export default function PlayerProfile() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Statistiky");
   const [shortlisted, setShortlisted] = useState(false);
+  const toggleShortlist = () => {
+    const nextShortlisted = !shortlisted;
+    setShortlisted(nextShortlisted); // optimisticky, server se dožádá na pozadí
+    apiFetch(`/api/players/${id}/stage`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage: nextShortlisted ? "Sledovaný" : null }),
+    }).catch(() => setShortlisted((s) => !s)); // při chybě vrátit zpět
+  };
   const [expandedStat, setExpandedStat] = useState(null);
   const [selectedClips, setSelectedClips] = useState(new Set());
   const [scout, setScout] = useState("");
@@ -913,6 +922,7 @@ export default function PlayerProfile() {
           minutesTracked: data.minutesTracked || 0,
           riskLevel: data.riskLevel || "low",
         });
+        setShortlisted(!!data.pipelineStage);
         setBreakdown(data.breakdown || []);
         setStyleContributions(data.styleContributions || null);
         setClips(data.clips || []);
@@ -1255,7 +1265,7 @@ export default function PlayerProfile() {
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button
-              onClick={() => setShortlisted((s) => !s)}
+              onClick={toggleShortlist}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: shortlisted ? "#fff" : C.ink, background: shortlisted ? C.turf : "#fff", border: `1px solid ${shortlisted ? C.turf : C.line}`, borderRadius: 4, cursor: "pointer" }}
             >
               <Star size={15} fill={shortlisted ? "#fff" : "none"} />
@@ -2078,7 +2088,7 @@ export default function PlayerProfile() {
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20 }}>
               <SectionLabel>Akce</SectionLabel>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <ActionButton icon={Star} primary={!shortlisted} onClick={() => setShortlisted((s) => !s)}>
+                <ActionButton icon={Star} primary={!shortlisted} onClick={toggleShortlist}>
                   {shortlisted ? "Odebrat ze shortlisty" : "Přidat do shortlisty"}
                 </ActionButton>
                 <ActionButton

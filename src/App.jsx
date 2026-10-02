@@ -12,10 +12,12 @@ import LiveTagging from "./pages/LiveTagging.jsx";
 import AddPlayer from "./pages/AddPlayer.jsx";
 import Login from "./pages/Login.jsx";
 import Club from "./pages/Club.jsx";
+import Shortlist from "./pages/Shortlist.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
   { to: "/hledani", label: "Vyhledávání" },
+  { to: "/shortlist", label: "Shortlist" },
   { to: "/radar", label: "Radar hodnoty" },
   { to: "/pridat-hrace", label: "+ Přidat hráče" },
   { to: "/hrac/1", label: "Player Profile (demo)" },
@@ -113,6 +115,7 @@ function AppRoutes() {
       <Route path="/hrac/:id/statistiky" element={<ProtectedRoute><PlayerStatsForm /></ProtectedRoute>} />
       <Route path="/tagovani" element={<ProtectedRoute><LiveTagging /></ProtectedRoute>} />
       <Route path="/klub" element={<ProtectedRoute><Club /></ProtectedRoute>} />
+      <Route path="/shortlist" element={<ProtectedRoute><Shortlist /></ProtectedRoute>} />
     </Routes>
   );
 }
