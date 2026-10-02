@@ -383,15 +383,20 @@ export default function Dashboard() {
 
             {/* Shortlist funnel */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22 }}>
-              <SectionLabel icon={ListChecks}>Shortlisty podle stavu</SectionLabel>
-              {shortlistStages.length === 0 ? (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <SectionLabel icon={ListChecks}>Shortlisty podle stavu</SectionLabel>
+                <Link to="/shortlist" style={{ fontSize: 12, fontWeight: 600, color: C.turf, textDecoration: "none" }}>
+                  Otevřít kanban →
+                </Link>
+              </div>
+              {shortlistStages.reduce((sum, s) => sum + s.count, 0) === 0 ? (
                 <div style={{ padding: "16px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
-                  Zatím nemáš žádné shortlisty — přidej hráče a začni je sledovat.
+                  Zatím nemáš žádné shortlisty — u profilu hráče klikni na „Sledovat“ a začne se zobrazovat tady.
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {shortlistStages.map((s) => {
-                    const max = Math.max(...shortlistStages.map((x) => x.count));
+                    const max = Math.max(1, ...shortlistStages.map((x) => x.count));
                     return (
                       <div key={s.stage}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.inkSoft, marginBottom: 3 }}>

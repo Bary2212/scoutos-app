@@ -286,9 +286,14 @@ function playerRowToApi(p, evaluation) {
     riskLevel: hasMyEvaluation ? evaluation.risk_level : "low",
     scores: hasMyEvaluation ? evaluation.scores : EMPTY_SCORES,
     reason: hasMyEvaluation ? evaluation.reason : EMPTY_REASON,
+    pipelineStage: hasMyEvaluation ? evaluation.pipeline_stage : null,
     ...(hasMyEvaluation ? evaluation.analytics || {} : {}),
   };
 }
+
+// Pořadí fází shortlist kanbanu — používá se při řazení sloupců i jako
+// whitelist platných hodnot pro PATCH /api/players/:id/stage.
+const PIPELINE_STAGES = ["Sledovaný", "Hodnocený", "Doporučený", "V jednání", "Uzavřeno"];
 
 async function getMyEvaluation(playerId, userId) {
   const { rows } = await pool.query("SELECT * FROM player_evaluations WHERE player_id = $1 AND user_id = $2", [playerId, userId]);
@@ -868,13 +873,65 @@ app.get("/api/coverage", async (req, res) => {
   }
 });
 
+// Reálné počty hráčů na shortlistě PŘIHLÁŠENÉHO skauta po fázích (dřív vracelo
+// natvrdo zadaná demo čísla jen demo účtům) — používá se pro graf na Dashboardu.
 app.get("/api/shortlist-stages", async (req, res) => {
   try {
-    if (!req.user.isDemoTeam) return res.json([]);
-    const { rows } = await pool.query("SELECT stage, count FROM shortlist_stages ORDER BY sort_order");
-    res.json(rows);
+    const { rows } = await pool.query(
+      "SELECT pipeline_stage AS stage, COUNT(*)::int AS count FROM player_evaluations WHERE user_id = $1 AND pipeline_stage IS NOT NULL GROUP BY pipeline_stage",
+      [req.user.id]
+    );
+    const counts = Object.fromEntries(rows.map((r) => [r.stage, r.count]));
+    res.json(PIPELINE_STAGES.map((stage) => ({ stage, count: counts[stage] || 0 })));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst shortlisty.", detail: err.message });
+  }
+});
+
+// Celý shortlist kanban přihlášeného skauta — hráči seskupení podle fáze.
+app.get("/api/shortlist", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.position, p.age, p.club, e.pipeline_stage AS stage, e.market_value, e.scores
+       FROM player_evaluations e JOIN players p ON p.id = e.player_id
+       WHERE e.user_id = $1 AND e.pipeline_stage IS NOT NULL
+       ORDER BY p.name`,
+      [req.user.id]
+    );
+    const board = Object.fromEntries(PIPELINE_STAGES.map((s) => [s, []]));
+    for (const r of rows) {
+      board[r.stage]?.push({
+        id: r.id, name: r.name, position: r.position, age: r.age, club: r.club,
+        marketValue: Number(r.market_value), scores: r.scores,
+      });
+    }
+    res.json(board);
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst shortlist.", detail: err.message });
+  }
+});
+
+// Nastaví/zruší fázi hráče na shortlistě přihlášeného skauta. stage: null
+// odebere hráče ze shortlisty úplně (kanban kartu smaže, hodnocení zůstává).
+app.patch("/api/players/:id/stage", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    const { stage } = req.body;
+    if (stage !== null && !PIPELINE_STAGES.includes(stage)) {
+      return res.status(400).json({ error: `Neplatná fáze. Platné hodnoty: ${PIPELINE_STAGES.join(", ")}, nebo null.` });
+    }
+    const { rows } = await pool.query("SELECT id FROM players WHERE id = $1", [playerId]);
+    if (!rows[0]) return res.status(404).json({ error: "Hráč nenalezen." });
+
+    await pool.query(
+      `INSERT INTO player_evaluations (player_id, user_id, scores, reason, pipeline_stage)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (player_id, user_id) DO UPDATE SET pipeline_stage = $5, updated_at = now()`,
+      [playerId, req.user.id, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON), stage]
+    );
+    res.json({ pipelineStage: stage });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se upravit shortlist.", detail: err.message });
   }
 });
 

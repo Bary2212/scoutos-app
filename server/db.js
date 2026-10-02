@@ -122,10 +122,17 @@ CREATE TABLE IF NOT EXISTS player_evaluations (
   scores JSONB NOT NULL DEFAULT '{"pressing":50,"possession":50,"defensive":50}',
   reason JSONB NOT NULL DEFAULT '{}',
   analytics JSONB NOT NULL DEFAULT '{}',
+  -- NULL = scout hráče nesleduje (není na jeho shortlistě). Jakmile klikne na
+  -- "Sledovat", nastaví se na 'Sledovaný' a dál se posouvá ručně v kanbanu.
+  pipeline_stage TEXT DEFAULT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (player_id, user_id)
 );
+
+-- Appka už dřív běžela bez sloupce pipeline_stage (shortlist kanban) —
+-- ADD COLUMN IF NOT EXISTS ho bezpečně doplní i do existující produkční databáze.
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS reports (
   id SERIAL PRIMARY KEY,
@@ -579,8 +586,12 @@ async function seedIfEmpty() {
     // Subjektivní hodnocení (skóre, tržní odhad, riziko, rozklad...) dostane svůj
     // vlastní řádek v player_evaluations pro KAŽDÉHO demo scouta zvlášť, aby od
     // prvního dne fungoval model "sdílený hráč, soukromé hodnocení".
+    // Demo rozložení do fází shortlist kanbanu, jen pro ukázku rozmanitosti
+    // (podle pořadí v DEMO_PLAYERS) — null = hráč zatím není na shortlistě.
+    const DEMO_STAGES = ["Doporučený", "Hodnocený", "Sledovaný", null, "V jednání", "Sledovaný", "Uzavřeno"];
+
     const playerIds = [];
-    for (const p of DEMO_PLAYERS) {
+    for (const [idx, p] of DEMO_PLAYERS.entries()) {
       const { rows } = await client.query(
         `INSERT INTO players (owner_id, is_shared_demo, name, position, age, club, contract_until, agent, foot, height)
          VALUES (NULL, true, $1,$2,$3,$4,$5,$6,$7,$8)
@@ -591,11 +602,11 @@ async function seedIfEmpty() {
       playerIds.push(playerId);
       for (const u of userRows) {
         await client.query(
-          `INSERT INTO player_evaluations (player_id, user_id, market_value, risk_level, minutes_tracked, scores, reason, analytics)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO player_evaluations (player_id, user_id, market_value, risk_level, minutes_tracked, scores, reason, analytics, pipeline_stage)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
             playerId, u.id, p.marketValue || 0, p.riskLevel || "low", p.minutesTracked || 0,
-            JSON.stringify(p.scores), JSON.stringify(p.reason), JSON.stringify(p.analytics || {}),
+            JSON.stringify(p.scores), JSON.stringify(p.reason), JSON.stringify(p.analytics || {}), DEMO_STAGES[idx] || null,
           ]
         );
       }
