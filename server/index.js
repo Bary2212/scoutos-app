@@ -7,6 +7,7 @@ import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dns from "dns";
+import crypto from "crypto";
 import { pool, initDb, createClub, generateUniqueInviteCode } from "./db.js";
 
 // Render (free plán) má problémy se směrováním odchozích IPv6 spojení —
@@ -172,6 +173,48 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+
+// ---------- VEŘEJNÝ (read-only) PROFIL HRÁČE — musí být PŘED ochranným middlewarem níže ----------
+// Scout si na profilu hráče vygeneruje odkaz s náhodným tokenem a pošle ho
+// komukoliv mimo appku (trenér, majitel klubu) — bez nutnosti účtu/přihlášení.
+// Vrací stejná data jako GET /api/players/:id, ale jen pro JEDNO konkrétní
+// (sdílené) hodnocení, dohledané podle tokenu, ne podle interního ID hráče.
+app.get("/api/public/profile/:token", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id AS player_id, p.name, p.position, p.age, p.club, p.contract_until, p.agent, p.foot, p.height,
+              e.market_value, e.minutes_tracked, e.risk_level, e.scores, e.reason, e.analytics
+       FROM player_evaluations e JOIN players p ON p.id = e.player_id
+       WHERE e.share_token = $1`,
+      [req.params.token]
+    );
+    const row = rows[0];
+    if (!row) return res.status(404).json({ error: "Odkaz nenalezen nebo byl zrušen." });
+    const player = {
+      id: row.player_id,
+      name: row.name,
+      position: row.position,
+      age: row.age,
+      club: row.club,
+      contract_until: row.contract_until,
+      agent: row.agent,
+      foot: row.foot,
+      height: row.height,
+    };
+    const evaluation = {
+      market_value: row.market_value,
+      minutes_tracked: row.minutes_tracked,
+      risk_level: row.risk_level,
+      scores: row.scores,
+      reason: row.reason,
+      pipeline_stage: null,
+      analytics: row.analytics,
+    };
+    res.json(playerRowToApi(player, evaluation));
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst profil.", detail: err.message });
+  }
+});
 
 // ---------- OCHRANNÝ MIDDLEWARE — všechno pod /api definované NÍŽE už vyžaduje platný token ----------
 app.use("/api", (req, res, next) => {
@@ -932,6 +975,47 @@ app.patch("/api/players/:id/stage", async (req, res) => {
     res.json({ pipelineStage: stage });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se upravit shortlist.", detail: err.message });
+  }
+});
+
+// Vrátí (a při prvním zavolání vytvoří) token pro veřejný read-only odkaz na
+// MOJE hodnocení tohoto hráče. Idempotentní — opakované volání vrací pořád
+// stejný token, dokud ho scout výslovně nezruší (DELETE níže).
+app.post("/api/players/:id/share", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    const { rows } = await pool.query("SELECT id FROM players WHERE id = $1", [playerId]);
+    if (!rows[0]) return res.status(404).json({ error: "Hráč nenalezen." });
+
+    let evaluation = await getMyEvaluation(playerId, req.user.id);
+    if (!evaluation) {
+      const { rows: created } = await pool.query(
+        `INSERT INTO player_evaluations (player_id, user_id, scores, reason) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [playerId, req.user.id, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
+      );
+      evaluation = created[0];
+    }
+
+    let token = evaluation.share_token;
+    if (!token) {
+      token = crypto.randomBytes(12).toString("hex");
+      await pool.query("UPDATE player_evaluations SET share_token = $1 WHERE id = $2", [token, evaluation.id]);
+    }
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se vytvořit sdílený odkaz.", detail: err.message });
+  }
+});
+
+// Zruší veřejný odkaz — token přestane fungovat, appka si při dalším
+// kliknutí na "Sdílet" vygeneruje nový.
+app.delete("/api/players/:id/share", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    await pool.query("UPDATE player_evaluations SET share_token = NULL WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se zrušit sdílený odkaz.", detail: err.message });
   }
 });
 

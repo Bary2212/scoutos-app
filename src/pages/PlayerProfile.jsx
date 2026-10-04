@@ -22,6 +22,7 @@ import {
   Trash2,
   Pencil,
   Check,
+  Share2,
 } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
@@ -831,6 +832,30 @@ export default function PlayerProfile() {
       body: JSON.stringify({ stage: nextShortlisted ? "Sledovaný" : null }),
     }).catch(() => setShortlisted((s) => !s)); // při chybě vrátit zpět
   };
+  const [shareUrl, setShareUrl] = useState(null);
+  const [sharingLoading, setSharingLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const shareProfile = () => {
+    // Odkaz už existuje — druhé kliknutí ho jen znovu zkopíruje do schránky.
+    if (shareUrl) {
+      navigator.clipboard?.writeText(shareUrl).catch(() => {});
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+      return;
+    }
+    setSharingLoading(true);
+    apiFetch(`/api/players/${id}/share`, { method: "POST" })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => {
+        const url = `${window.location.origin}/verejny/profil/${data.token}`;
+        setShareUrl(url);
+        navigator.clipboard?.writeText(url).catch(() => {});
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      })
+      .catch(() => {})
+      .finally(() => setSharingLoading(false));
+  };
   const [expandedStat, setExpandedStat] = useState(null);
   const [selectedClips, setSelectedClips] = useState(new Set());
   const [scout, setScout] = useState("");
@@ -1291,6 +1316,14 @@ export default function PlayerProfile() {
             >
               <FileDown size={15} />
               Executive summary
+            </button>
+            <button
+              onClick={shareProfile}
+              disabled={sharingLoading}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: shareCopied ? C.turf : C.ink, background: "#fff", border: `1px solid ${shareCopied ? C.turf : C.line}`, borderRadius: 4, cursor: sharingLoading ? "default" : "pointer" }}
+            >
+              {sharingLoading ? <Loader2 size={15} className="spin" /> : shareCopied ? <Check size={15} /> : <Share2 size={15} />}
+              {shareCopied ? "Odkaz zkopírován" : "Sdílet profil"}
             </button>
             <button
               onClick={() => navigate(`/hrac/${id}/statistiky`)}
@@ -2110,6 +2143,9 @@ export default function PlayerProfile() {
                   })}
                 >
                   Vytvořit executive summary
+                </ActionButton>
+                <ActionButton icon={shareCopied ? Check : Share2} onClick={shareProfile}>
+                  {shareCopied ? "Odkaz zkopírován" : "Sdílet profil (bez přihlášení)"}
                 </ActionButton>
                 <div style={{ marginTop: 4 }}>
                   <label style={{ fontSize: 12, color: C.inkFaint, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>

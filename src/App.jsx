@@ -13,6 +13,7 @@ import AddPlayer from "./pages/AddPlayer.jsx";
 import Login from "./pages/Login.jsx";
 import Club from "./pages/Club.jsx";
 import Shortlist from "./pages/Shortlist.jsx";
+import PublicPlayerProfile from "./pages/PublicPlayerProfile.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -106,6 +107,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/prihlaseni" element={<Login />} />
+      <Route path="/verejny/profil/:token" element={<PublicPlayerProfile />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/hledani" element={<ProtectedRoute><PlayerSearch /></ProtectedRoute>} />
       <Route path="/radar" element={<ProtectedRoute><ValueRadar /></ProtectedRoute>} />

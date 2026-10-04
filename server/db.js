@@ -125,6 +125,11 @@ CREATE TABLE IF NOT EXISTS player_evaluations (
   -- NULL = scout hráče nesleduje (není na jeho shortlistě). Jakmile klikne na
   -- "Sledovat", nastaví se na 'Sledovaný' a dál se posouvá ručně v kanbanu.
   pipeline_stage TEXT DEFAULT NULL,
+  -- NULL = scout zatím nevygeneroval veřejný read-only odkaz na profil hráče.
+  -- Náhodný token (bez vazby na interní ID), aby šlo odkaz poslat mimo appku
+  -- bez odhalení ostatních hráčů/skautů. UNIQUE, aby dva různé scouty nikdy
+  -- nedostaly stejný token.
+  share_token TEXT UNIQUE DEFAULT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (player_id, user_id)
@@ -133,6 +138,9 @@ CREATE TABLE IF NOT EXISTS player_evaluations (
 -- Appka už dřív běžela bez sloupce pipeline_stage (shortlist kanban) —
 -- ADD COLUMN IF NOT EXISTS ho bezpečně doplní i do existující produkční databáze.
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFAULT NULL;
+-- Appka už dřív běžela i bez sloupce share_token (veřejný odkaz na profil) —
+-- stejně bezpečně doplní i do existující produkční databáze.
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS reports (
   id SERIAL PRIMARY KEY,
