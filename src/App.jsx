@@ -13,6 +13,7 @@ import AddPlayer from "./pages/AddPlayer.jsx";
 import Login from "./pages/Login.jsx";
 import Club from "./pages/Club.jsx";
 import Shortlist from "./pages/Shortlist.jsx";
+import ComparePlayers from "./pages/ComparePlayers.jsx";
 import PublicPlayerProfile from "./pages/PublicPlayerProfile.jsx";
 
 const NAV = [
@@ -118,6 +119,7 @@ function AppRoutes() {
       <Route path="/tagovani" element={<ProtectedRoute><LiveTagging /></ProtectedRoute>} />
       <Route path="/klub" element={<ProtectedRoute><Club /></ProtectedRoute>} />
       <Route path="/shortlist" element={<ProtectedRoute><Shortlist /></ProtectedRoute>} />
+      <Route path="/porovnani" element={<ProtectedRoute><ComparePlayers /></ProtectedRoute>} />
     </Routes>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { ListChecks, X, GripVertical, FileDown, Loader2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ListChecks, X, GripVertical, FileDown, Loader2, Scale } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 import { downloadShortlistExport } from "../lib/shortlistExport.js";
@@ -27,6 +27,7 @@ const STAGES = ["Sledovaný", "Hodnocený", "Doporučený", "V jednání", "Uzav
 
 export default function Shortlist() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -122,7 +123,12 @@ export default function Shortlist() {
     }
   }
 
+  function comparePlayers() {
+    navigate(`/porovnani?ids=${Array.from(selected).join(",")}`);
+  }
+
   const totalCount = board ? Object.values(board).reduce((sum, arr) => sum + arr.length, 0) : 0;
+  const compareDisabled = selected.size < 2 || selected.size > 3;
 
   return (
     <div style={{ background: C.bg, minHeight: "calc(100vh - 56px)", fontFamily: fontBody, color: C.ink }}>
@@ -148,6 +154,28 @@ export default function Shortlist() {
                 style={{ background: "none", border: "none", color: C.inkFaint, fontSize: 12, cursor: "pointer", padding: "4px 6px" }}
               >
                 Zrušit výběr
+              </button>
+              <button
+                onClick={comparePlayers}
+                disabled={compareDisabled}
+                title={compareDisabled ? "Vyber 2–3 hráče k porovnání" : "Porovnat vybrané hráče"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#fff",
+                  color: compareDisabled ? C.inkFaint : C.ink,
+                  border: `1px solid ${C.line}`,
+                  borderRadius: 4,
+                  padding: "7px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: compareDisabled ? "default" : "pointer",
+                  opacity: compareDisabled ? 0.6 : 1,
+                }}
+              >
+                <Scale size={13} />
+                Porovnat
               </button>
               <button
                 onClick={exportSelected}
