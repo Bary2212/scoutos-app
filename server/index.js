@@ -935,7 +935,7 @@ app.get("/api/shortlist-stages", async (req, res) => {
 app.get("/api/shortlist", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.position, p.age, p.club, e.pipeline_stage AS stage, e.market_value, e.scores
+      `SELECT p.id, p.name, p.position, p.age, p.club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.user_id = $1 AND e.pipeline_stage IS NOT NULL
        ORDER BY p.name`,
@@ -945,7 +945,7 @@ app.get("/api/shortlist", async (req, res) => {
     for (const r of rows) {
       board[r.stage]?.push({
         id: r.id, name: r.name, position: r.position, age: r.age, club: r.club,
-        marketValue: Number(r.market_value), scores: r.scores,
+        marketValue: Number(r.market_value), scores: r.scores, riskLevel: r.risk_level,
       });
     }
     res.json(board);

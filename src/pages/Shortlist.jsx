@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ListChecks, X, GripVertical, FileDown, Loader2, Scale } from "lucide-react";
+import { ListChecks, X, GripVertical, FileDown, Loader2, Scale, PenLine } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 import { downloadShortlistExport } from "../lib/shortlistExport.js";
@@ -35,6 +35,8 @@ export default function Shortlist() {
   const [draggingId, setDraggingId] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [exporting, setExporting] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [exportNote, setExportNote] = useState("");
 
   useEffect(() => {
     load();
@@ -115,7 +117,7 @@ export default function Shortlist() {
         stage,
         players: board[stage].filter((p) => selected.has(p.id)),
       })).filter((g) => g.players.length > 0);
-      await downloadShortlistExport({ stageGroups, scoutName: user?.name });
+      await downloadShortlistExport({ stageGroups, scoutName: user?.name, note: exportNote });
     } catch {
       setError("Export do PDF se nezdařil.");
     } finally {
@@ -178,6 +180,26 @@ export default function Shortlist() {
                 Porovnat
               </button>
               <button
+                onClick={() => setNoteOpen((o) => !o)}
+                title="Přidat poznámku do exportovaného PDF"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: noteOpen || exportNote ? C.turfSoft : "#fff",
+                  color: noteOpen || exportNote ? C.turf : C.ink,
+                  border: `1px solid ${noteOpen || exportNote ? C.turf : C.line}`,
+                  borderRadius: 4,
+                  padding: "7px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <PenLine size={13} />
+                Poznámka{exportNote ? " ✓" : ""}
+              </button>
+              <button
                 onClick={exportSelected}
                 disabled={exporting}
                 style={{
@@ -201,6 +223,31 @@ export default function Shortlist() {
             </>
           )}
         </div>
+
+        {!loading && !error && selected.size > 0 && noteOpen && (
+          <div style={{ marginBottom: 16, marginTop: -6 }}>
+            <textarea
+              value={exportNote}
+              onChange={(e) => setExportNote(e.target.value.slice(0, 400))}
+              placeholder="Krátká poznámka pro vedení klubu, která se zobrazí v hlavičce PDF (volitelné)…"
+              maxLength={400}
+              rows={2}
+              style={{
+                width: "100%",
+                maxWidth: 600,
+                fontFamily: fontBody,
+                fontSize: 13,
+                color: C.ink,
+                border: `1px solid ${C.line}`,
+                borderRadius: 6,
+                padding: "8px 10px",
+                resize: "vertical",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 3 }}>{exportNote.length}/400</div>
+          </div>
+        )}
 
         {loading && <div style={{ fontSize: 13, color: C.inkFaint }}>Načítám…</div>}
         {error && (
