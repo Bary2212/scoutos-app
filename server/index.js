@@ -696,9 +696,19 @@ const EMPTY_REASON = {
 // Sloučí sdílenou identitu hráče (players) s hodnocením KONKRÉTNÍHO scouta
 // (player_evaluations, nebo null, pokud ho ještě neohodnotil). `hasMyEvaluation`
 // říká frontendu, jestli jde o reálná data, nebo jen neutrální výchozí hodnoty.
-function playerRowToApi(p, evaluation) {
+// Základní údaje sdíleného hráče smí měnit jen ten, kdo hráče založil (a admin).
+// Demo hráči (bez vlastníka) smí upravovat demo tým. Ostatní jen svoje hodnocení.
+function canEditPlayerIdentity(player, user) {
+  if (!user) return false;
+  if (player.owner_id === user.id) return true;
+  if (user.isAdmin) return true;
+  return player.owner_id == null && !!user.isDemoTeam;
+}
+
+function playerRowToApi(p, evaluation, viewer) {
   const hasMyEvaluation = !!evaluation;
   return {
+    ...(viewer ? { canEditIdentity: canEditPlayerIdentity(p, viewer) } : {}),
     id: p.id,
     name: p.name,
     position: p.position,
@@ -737,7 +747,7 @@ app.get("/api/players", async (req, res) => {
     const evalByPlayerId = Object.fromEntries(evals.map((e) => [e.player_id, e]));
 
     const results = players
-      .map((p) => playerRowToApi(p, evalByPlayerId[p.id]))
+      .map((p) => playerRowToApi(p, evalByPlayerId[p.id], req.user))
       .filter((p) => (category === "Vše" ? true : categoryOf(p.position) === category))
       .filter((p) => (p.age ?? 0) <= Number(maxAge))
       .filter((p) => p.marketValue <= Number(maxBudget))
@@ -784,7 +794,7 @@ app.post("/api/players", async (req, res) => {
        RETURNING *`,
       [player.id, req.user.id, Number(marketValue) || 0, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
     );
-    res.status(201).json(playerRowToApi(player, evalRows[0]));
+    res.status(201).json(playerRowToApi(player, evalRows[0], req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se vytvořit hráče.", detail: err.message });
   }
@@ -800,13 +810,13 @@ app.post("/api/players/:id/evaluate", async (req, res) => {
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
 
     const existing = await getMyEvaluation(playerId, req.user.id);
-    if (existing) return res.json(playerRowToApi(player, existing));
+    if (existing) return res.json(playerRowToApi(player, existing, req.user));
 
     const { rows: evalRows } = await pool.query(
       `INSERT INTO player_evaluations (player_id, user_id, scores, reason) VALUES ($1,$2,$3,$4) RETURNING *`,
       [playerId, req.user.id, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
     );
-    res.status(201).json(playerRowToApi(player, evalRows[0]));
+    res.status(201).json(playerRowToApi(player, evalRows[0], req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se přidat hodnocení.", detail: err.message });
   }
@@ -888,8 +898,9 @@ app.patch("/api/players/:id", async (req, res) => {
     const player = rows[0];
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
 
-    // Základní identita je sdílená — upravit ji může kterýkoliv přihlášený scout
-    // (stejně jako běžný sdílený registr), ale tržní hodnota je od teď u hodnocení.
+    // Základní identita je sdílená mezi všemi kluby, proto ji smí měnit jen ten, kdo
+    // hráče založil (jinak by jeden klub přepisoval záznam, který používají ostatní).
+    // Tržní hodnota je u hodnocení, tedy soukromá — ta se ukládá vždy.
     const map = { name: "name", position: "position", age: "age", club: "club", contractUntil: "contract_until", agent: "agent", foot: "foot", height: "height" };
     const sets = [];
     const values = [];
@@ -903,6 +914,13 @@ app.patch("/api/players/:id", async (req, res) => {
       }
     }
     let updatedPlayer = player;
+    if (sets.length > 0 && !canEditPlayerIdentity(player, req.user)) {
+      if (req.body.marketValue === undefined) {
+        return res.status(403).json({ error: "Základní údaje sdíleného hráče může měnit jen ten, kdo ho založil." });
+      }
+      sets.length = 0; // formulář poslal i údaje hráče — ty ignorujeme, uloží se jen moje hodnocení
+      values.length = 0;
+    }
     if (sets.length > 0) {
       values.push(player.id);
       const { rows: updated } = await pool.query(`UPDATE players SET ${sets.join(", ")} WHERE id = $${i} RETURNING *`, values);
@@ -928,7 +946,7 @@ app.patch("/api/players/:id", async (req, res) => {
       }
     }
 
-    res.json(playerRowToApi(updatedPlayer, evaluation));
+    res.json(playerRowToApi(updatedPlayer, evaluation, req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se upravit hráče.", detail: err.message });
   }
@@ -989,25 +1007,40 @@ app.patch("/api/players/:id/analytics", async (req, res) => {
       `UPDATE player_evaluations SET ${sets.join(", ")} WHERE player_id = $${i++} AND user_id = $${i} RETURNING *`,
       values
     );
-    res.json(playerRowToApi(player, updated[0]));
+    res.json(playerRowToApi(player, updated[0], req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se uložit statistiky.", detail: err.message });
   }
 });
 
+// "Smazat hráče" odebere hráče jen z MÉHO pohledu: smaže moje hodnocení, moje reporty
+// a moje komentáře. Sdílený záznam hráče se smaže úplně, až když k němu už nikdo
+// jiný nic nemá — jinak by zmizela data ostatních skautů a klubů.
 app.delete("/api/players/:id", async (req, res) => {
   try {
     const playerId = Number(req.params.id);
     const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [playerId]);
     const player = rows[0];
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
-    // Smazat sdíleného hráče (ne jen svoje hodnocení) může jen ten, kdo ho založil —
-    // jinak by jeden scout mohl smazat záznam, se kterým pracuje i jiný klub.
-    if (player.owner_id !== req.user.id) {
-      return res.status(403).json({ error: "Tohoto hráče může smazat jen scout, který ho založil." });
+
+    const mine = await getMyEvaluation(playerId, req.user.id);
+    if (!mine && player.owner_id !== req.user.id) {
+      return res.status(404).json({ error: "Tohoto hráče nemáš ve svém seznamu." });
     }
-    await pool.query("DELETE FROM players WHERE id = $1", [playerId]); // hodnocení i reporty smažou kaskádou (ON DELETE CASCADE)
-    res.json({ deleted: true });
+
+    await pool.query("DELETE FROM player_evaluations WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
+    await pool.query("DELETE FROM reports WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
+    await pool.query("DELETE FROM player_comments WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
+
+    const { rows: left } = await pool.query(
+      `SELECT (SELECT COUNT(*) FROM player_evaluations WHERE player_id = $1)
+            + (SELECT COUNT(*) FROM reports WHERE player_id = $1)
+            + (SELECT COUNT(*) FROM player_comments WHERE player_id = $1) AS n`,
+      [playerId]
+    );
+    const recordDeleted = Number(left[0].n) === 0;
+    if (recordDeleted) await pool.query("DELETE FROM players WHERE id = $1", [playerId]);
+    res.json({ deleted: true, recordDeleted });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se smazat hráče.", detail: err.message });
   }
@@ -1019,7 +1052,7 @@ app.get("/api/players/:id", async (req, res) => {
     const player = rows[0];
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
     const evaluation = await getMyEvaluation(player.id, req.user.id);
-    res.json(playerRowToApi(player, evaluation));
+    res.json(playerRowToApi(player, evaluation, req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst hráče.", detail: err.message });
   }
@@ -1063,14 +1096,26 @@ function evaluationToApi(e) {
   return { marketValue: Number(e.market_value), riskLevel: e.risk_level, scores: e.scores, reason: e.reason, updatedAt: e.updated_at };
 }
 
+// Viditelnost reportů: vlastní + reporty skautů ze stejného klubu. Starší reporty
+// bez vazby na uživatele (user_id NULL) vidí jen demo tým.
+function visibleReports(req) {
+  const demo = req.user.isDemoTeam ? " OR r.user_id IS NULL" : "";
+  return {
+    sql: `(r.user_id = $1 OR r.user_id IN (SELECT id FROM users WHERE club_id = $2)${demo})`,
+    params: [req.user.id, req.user.clubId ?? null],
+  };
+}
+
 app.get("/api/reports", async (req, res) => {
   try {
     const { playerId } = req.query;
+    const { sql, params } = visibleReports(req);
+    let query = `SELECT r.* FROM reports r WHERE ${sql}`;
     if (playerId) {
-      const { rows: reports } = await pool.query("SELECT * FROM reports WHERE player_id = $1 ORDER BY id", [Number(playerId)]);
-      return res.json(reports.map(reportRowToApi));
+      params.push(Number(playerId));
+      query += ` AND r.player_id = $${params.length}`;
     }
-    const { rows: reports } = await pool.query("SELECT * FROM reports ORDER BY id");
+    const { rows: reports } = await pool.query(`${query} ORDER BY r.id`, params);
     res.json(reports.map(reportRowToApi));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst reporty.", detail: err.message });
@@ -1081,20 +1126,39 @@ function reportRowToApi(r) {
   return { id: r.id, playerId: r.player_id, author: r.author, match: r.match, date: r.date, recommendation: r.recommendation, edited: r.edited };
 }
 
+// Report smí měnit/mazat jeho autor, hlavní skaut klubu (u reportů svých skautů)
+// a demo tým u starých demo reportů. Cizí kluby se k reportu nedostanou vůbec.
+async function loadModifiableReport(req, id) {
+  const { sql, params } = visibleReports(req);
+  params.push(id);
+  const { rows } = await pool.query(`SELECT r.* FROM reports r WHERE ${sql} AND r.id = $3`, params);
+  const report = rows[0];
+  if (!report) return { error: 404 };
+  const own = report.user_id === req.user.id;
+  const head = req.user.role === "hlavni_skaut";
+  const legacyDemo = report.user_id === null && req.user.isDemoTeam;
+  if (!own && !head && !legacyDemo) return { error: 403 };
+  return { report };
+}
+
 app.post("/api/reports", async (req, res) => {
   try {
-    const { playerId, author, match, recommendation } = req.body;
-    if (!playerId || !author || !recommendation) {
-      return res.status(400).json({ error: "Chybí povinná pole (playerId, author, recommendation)." });
+    const { playerId, match, recommendation } = req.body;
+    if (!playerId || !recommendation) {
+      return res.status(400).json({ error: "Chybí povinná pole (playerId, recommendation)." });
+    }
+    if (!["Doporučit", "Sledovat dál", "Zamítnout"].includes(recommendation)) {
+      return res.status(400).json({ error: "Neplatné doporučení." });
     }
     const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [Number(playerId)]);
     const player = rows[0];
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
 
+    // Autor je vždy přihlášený uživatel — nebere se z těla požadavku.
     const date = new Date().toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" });
     const { rows: inserted } = await pool.query(
-      "INSERT INTO reports (player_id, author, match, date, recommendation) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-      [Number(playerId), author, match || "", date, recommendation]
+      "INSERT INTO reports (player_id, author, user_id, match, date, recommendation) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+      [Number(playerId), req.user.name, req.user.id, String(match || "").slice(0, 200), date, recommendation]
     );
     res.status(201).json(reportRowToApi(inserted[0]));
   } catch (err) {
@@ -1104,11 +1168,12 @@ app.post("/api/reports", async (req, res) => {
 
 app.patch("/api/reports/:id", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM reports WHERE id = $1", [Number(req.params.id)]);
-    const report = rows[0];
-    if (!report) return res.status(404).json({ error: "Report nenalezen." });
+    const found = await loadModifiableReport(req, Number(req.params.id));
+    if (found.error === 404) return res.status(404).json({ error: "Report nenalezen." });
+    if (found.error === 403) return res.status(403).json({ error: "Tenhle report nemůžeš upravit." });
+    const report = found.report;
 
-    const map = { author: "author", match: "match", recommendation: "recommendation" };
+    const map = { match: "match", recommendation: "recommendation" };
     const sets = [];
     const values = [];
     let i = 1;
@@ -1129,8 +1194,10 @@ app.patch("/api/reports/:id", async (req, res) => {
 
 app.delete("/api/reports/:id", async (req, res) => {
   try {
-    const { rowCount } = await pool.query("DELETE FROM reports WHERE id = $1", [Number(req.params.id)]);
-    if (rowCount === 0) return res.status(404).json({ error: "Report nenalezen." });
+    const found = await loadModifiableReport(req, Number(req.params.id));
+    if (found.error === 404) return res.status(404).json({ error: "Report nenalezen." });
+    if (found.error === 403) return res.status(403).json({ error: "Tenhle report nemůžeš smazat." });
+    await pool.query("DELETE FROM reports WHERE id = $1", [found.report.id]);
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se smazat report.", detail: err.message });
@@ -1138,15 +1205,21 @@ app.delete("/api/reports/:id", async (req, res) => {
 });
 
 // ---------- Diskuze u hráče ----------
-// Veřejné komentáře viditelné KAŽDÉMU scoutovi (na rozdíl od player_evaluations),
-// aby si mohli vyměňovat postřehy k témuž sdílenému hráči.
+// Komentáře vidí skauti jednoho klubu — vyměňují si postřehy k témuž hráči, ale
+// jiný klub je nevidí.
 function commentRowToApi(c) {
   return { id: c.id, playerId: c.player_id, userId: c.user_id, author: c.author, body: c.body, createdAt: c.created_at };
 }
 
 app.get("/api/players/:id/comments", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM player_comments WHERE player_id = $1 ORDER BY id", [Number(req.params.id)]);
+    // Komentáře vidí jen skauti stejného klubu (ne celá appka).
+    const { rows } = await pool.query(
+      `SELECT c.* FROM player_comments c
+       WHERE c.player_id = $1 AND (c.user_id = $2 OR c.user_id IN (SELECT id FROM users WHERE club_id = $3))
+       ORDER BY c.id`,
+      [Number(req.params.id), req.user.id, req.user.clubId ?? null]
+    );
     res.json(rows.map(commentRowToApi));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst komentáře.", detail: err.message });
@@ -1185,10 +1258,12 @@ app.delete("/api/comments/:id", async (req, res) => {
   }
 });
 
-// GET /api/conflicts — dopočítané za běhu ze všech reportů (hráči jsou teď sdílení)
+// GET /api/conflicts — dopočítané za běhu z reportů skautů TVÉHO klubu (reporty
+// jiných klubů se nikdy nezobrazují).
 app.get("/api/conflicts", async (req, res) => {
   try {
-    const { rows: reports } = await pool.query("SELECT * FROM reports");
+    const { sql, params } = visibleReports(req);
+    const { rows: reports } = await pool.query(`SELECT r.* FROM reports r WHERE ${sql}`, params);
     const byPlayer = {};
     for (const r of reports) {
       if (!byPlayer[r.player_id]) byPlayer[r.player_id] = [];
@@ -1246,12 +1321,26 @@ function eventRowToApi(e) {
   return { id: e.id, matchId: e.match_id, minute: e.minute, player: e.player_id, actionId: e.action_id, actionLabel: e.action_label, recordedAt: e.recorded_at };
 }
 
+// Akce z live tagování patří uživateli; vidí je skauti jeho klubu. Staré akce bez
+// uživatele (demo data) vidí jen demo tým.
+function visibleEventsSql(req) {
+  const demo = req.user.isDemoTeam ? " OR user_id IS NULL" : "";
+  return {
+    sql: `(user_id = $1 OR user_id IN (SELECT id FROM users WHERE club_id = $2)${demo})`,
+    params: [req.user.id, req.user.clubId ?? null],
+  };
+}
+
 app.get("/api/events", async (req, res) => {
   try {
     const { matchId } = req.query;
-    const { rows } = matchId
-      ? await pool.query("SELECT * FROM events WHERE match_id = $1 ORDER BY id", [Number(matchId)])
-      : await pool.query("SELECT * FROM events ORDER BY id");
+    const { sql, params } = visibleEventsSql(req);
+    let query = `SELECT * FROM events WHERE ${sql}`;
+    if (matchId) {
+      params.push(Number(matchId));
+      query += ` AND match_id = $${params.length}`;
+    }
+    const { rows } = await pool.query(`${query} ORDER BY id`, params);
     res.json(rows.map(eventRowToApi));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst akce.", detail: err.message });
@@ -1265,8 +1354,8 @@ app.post("/api/events", async (req, res) => {
       return res.status(400).json({ error: "Chybí povinná pole (matchId, minute, player, actionId)." });
     }
     const { rows } = await pool.query(
-      "INSERT INTO events (match_id, minute, player_id, action_id, action_label) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-      [Number(matchId), Number(minute), Number(player), actionId, actionLabel || ""]
+      "INSERT INTO events (match_id, minute, player_id, action_id, action_label, user_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+      [Number(matchId), Number(minute), Number(player), actionId, actionLabel || "", req.user.id]
     );
     res.status(201).json(eventRowToApi(rows[0]));
   } catch (err) {
@@ -1276,7 +1365,9 @@ app.post("/api/events", async (req, res) => {
 
 app.delete("/api/events/:id", async (req, res) => {
   try {
-    const { rowCount } = await pool.query("DELETE FROM events WHERE id = $1", [Number(req.params.id)]);
+    const { sql, params } = visibleEventsSql(req);
+    params.push(Number(req.params.id));
+    const { rowCount } = await pool.query(`DELETE FROM events WHERE ${sql} AND id = $3`, params);
     if (rowCount === 0) return res.status(404).json({ error: "Akce nenalezena." });
     res.json({ deleted: true });
   } catch (err) {

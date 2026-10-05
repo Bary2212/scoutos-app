@@ -180,23 +180,23 @@ export default function PlayerProfileBasic() {
                 {player.position} {player.club && `— ${player.club}`} {player.age && `— ${player.age} let`}
               </div>
             </div>
-            {!confirmDeletePlayer ? (
+            {!player.hasMyEvaluation ? null : !confirmDeletePlayer ? (
               <button
                 onClick={() => setConfirmDeletePlayer(true)}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", color: C.red, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
               >
-                <Trash2 size={13} /> Smazat hráče
+                <Trash2 size={13} /> Odebrat hráče
               </button>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Opravdu smazat? Nevratné.</span>
+                <span style={{ fontSize: 11, color: C.red, fontWeight: 600, maxWidth: 260, textAlign: "right" }}>Odebrat ze tvého seznamu? Smaže se tvoje hodnocení, reporty a komentáře; ostatním skautům hráč zůstane.</span>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
                     onClick={deletePlayer}
                     disabled={deletingPlayer}
                     style={{ padding: "6px 12px", background: C.red, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                   >
-                    {deletingPlayer ? "Mažu…" : "Ano, smazat"}
+                    {deletingPlayer ? "Odebírám…" : "Ano, odebrat"}
                   </button>
                   <button
                     onClick={() => setConfirmDeletePlayer(false)}
@@ -221,7 +221,7 @@ export default function PlayerProfileBasic() {
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700 }}>Základní údaje</div>
-            {!editing && (
+            {!editing && player.canEditIdentity !== false && (
               <button
                 onClick={startEditing}
                 style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}

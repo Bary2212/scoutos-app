@@ -120,6 +120,7 @@ export default function Dashboard() {
   const [coverage, setCoverage] = useState(fallbackCoverageData);
   const [shortlistStages, setShortlistStages] = useState(fallbackShortlistStages);
   const [playerCount, setPlayerCount] = useState(null);
+  const [teamSize, setTeamSize] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -151,10 +152,16 @@ export default function Dashboard() {
         setPositions(coverageData.positions);
         setCoverage(coverageData.data);
         setShortlistStages(stagesData);
-        setPlayerCount(playersData.length);
+        setPlayerCount(playersData.filter((p) => p.hasMyEvaluation).length);
         setBackendConnected(true);
       })
       .catch(() => setBackendConnected(false));
+
+    // Počet skautů v klubu zná jen hlavní skaut (běžný skaut dostane jen základní info o klubu).
+    apiFetch(`/api/club`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((club) => setTeamSize(club?.scouts ? club.scouts.length : 1))
+      .catch(() => setTeamSize(1));
   }, []);
 
   const resolveConflict = (playerId) => {
@@ -185,17 +192,17 @@ export default function Dashboard() {
         {/* ---------- Header ---------- */}
         <div style={{ marginBottom: 20 }}>
           <h1 style={{ fontFamily: fontDisplay, fontSize: 24, fontWeight: 700, margin: 0 }}>Dobrý den, {user?.name?.split(" ")[0] || ""}</h1>
-          <p style={{ fontSize: 13, color: C.inkFaint, marginTop: 4 }}>Úterý, 2. září 2026 — přehled skautské sítě</p>
+          <p style={{ fontSize: 13, color: C.inkFaint, marginTop: 4 }}>{new Date().toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).replace(/^./, (c) => c.toUpperCase())} — přehled skautské sítě</p>
         </div>
 
         {/* ---------- Stat cards ---------- */}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
-          <StatCard label="Hráčů v tvé databázi" value={playerCount ?? "…"} />
+          <StatCard label="Hráčů v tvém sledování" value={playerCount ?? "…"} />
           <StatCard label="Otevřené rozpory" value={activeConflicts.length} color={activeConflicts.length > 0 ? C.amber : C.turf} sub="vyžadují rozhodnutí" />
           {user?.isDemoTeam ? (
             <StatCard label="Skauti v terénu tento týden" value="5 / 8" />
           ) : (
-            <StatCard label="Skauti v týmu" value="1" sub="pozvi kolegy (připravujeme)" />
+            <StatCard label="Skauti v týmu" value={teamSize ?? "…"} sub={user?.role === "hlavni_skaut" ? "kolegy pozveš na stránce Klub" : "tvůj klub"} />
           )}
           <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub="liga × pozice pod 25 %" />
         </div>

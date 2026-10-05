@@ -167,6 +167,11 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Report patří konkrétnímu uživateli, aby se reporty (a z nich dopočítané rozpory)
+-- neukazovaly napříč kluby. Starší reporty se spárují podle jména autora.
+ALTER TABLE reports ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
+UPDATE reports r SET user_id = (SELECT u.id FROM users u WHERE u.name = r.author ORDER BY u.id LIMIT 1) WHERE r.user_id IS NULL;
+
 CREATE TABLE IF NOT EXISTS matches (
   id SERIAL PRIMARY KEY,
   date TEXT NOT NULL,
@@ -185,6 +190,9 @@ CREATE TABLE IF NOT EXISTS events (
   action_label TEXT DEFAULT '',
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Akce z live tagování patří uživateli (vidí je jen jeho klub).
+ALTER TABLE events ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
 
 CREATE TABLE IF NOT EXISTS coverage (
   league TEXT NOT NULL,

@@ -867,7 +867,7 @@ export default function PlayerProfile() {
   const [compareSelected, setCompareSelected] = useState(new Set());
   const [reports, setReports] = useState([]);
   const [backendConnected, setBackendConnected] = useState(null); // null = ještě nezjištěno
-  const [newReport, setNewReport] = useState({ author: "Petr Novák", match: "", recommendation: "Doporučit" });
+  const [newReport, setNewReport] = useState({ match: "", recommendation: "Doporučit" });
   const [submitting, setSubmitting] = useState(false);
 
   // ---------- Diskuze u hráče (veřejné komentáře, viditelné každému scoutovi) ----------
@@ -996,7 +996,7 @@ export default function PlayerProfile() {
       })
       .then((created) => {
         setReports((prev) => [created, ...prev]);
-        setNewReport({ author: "Petr Novák", match: "", recommendation: "Doporučit" });
+        setNewReport({ match: "", recommendation: "Doporučit" });
         setBackendConnected(true);
       })
       .catch(() => setBackendConnected(false))
@@ -1332,19 +1332,19 @@ export default function PlayerProfile() {
               <Pencil size={15} />
               {hasAnalytics ? "Upravit statistiky" : "Zadat statistiky"}
             </button>
-            {!confirmDeletePlayer ? (
+            {!player.hasMyEvaluation ? null : !confirmDeletePlayer ? (
               <button
                 onClick={() => setConfirmDeletePlayer(true)}
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.red, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}
               >
-                <Trash2 size={15} /> Smazat hráče
+                <Trash2 size={15} /> Odebrat hráče
               </button>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-                <span style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Opravdu smazat? Nevratné.</span>
+                <span style={{ fontSize: 11, color: C.red, fontWeight: 600, maxWidth: 260, textAlign: "right" }}>Odebrat ze tvého seznamu? Smaže se tvoje hodnocení, reporty a komentáře; ostatním skautům hráč zůstane.</span>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={deletePlayer} disabled={deletingPlayer} style={{ padding: "6px 12px", background: C.red, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                    {deletingPlayer ? "Mažu…" : "Ano, smazat"}
+                    {deletingPlayer ? "Odebírám…" : "Ano, odebrat"}
                   </button>
                   <button onClick={() => setConfirmDeletePlayer(false)} style={{ padding: "6px 12px", background: "#fff", color: C.inkSoft, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                     Zrušit
@@ -1361,7 +1361,7 @@ export default function PlayerProfile() {
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "18px 24px", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: editing ? 14 : 0 }}>
             <SectionLabel>Základní údaje</SectionLabel>
-            {!editing && (
+            {!editing && player.canEditIdentity !== false && (
               <button onClick={startEditing} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                 <Pencil size={13} /> Upravit
               </button>
@@ -1797,15 +1797,9 @@ export default function PlayerProfile() {
                 <form onSubmit={submitReport} style={{ borderTop: `1px solid ${C.lineSoft}`, paddingTop: 18 }}>
                   <SectionLabel>Přidat nový report</SectionLabel>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                    <select
-                      value={newReport.author}
-                      onChange={(e) => setNewReport((r) => ({ ...r, author: e.target.value }))}
-                      style={{ padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
-                    >
-                      <option>Petr Novák</option>
-                      <option>Jana Bartošová</option>
-                      <option>Karel Ryba</option>
-                    </select>
+                    <span style={{ padding: "8px 10px", border: `1px solid ${C.lineSoft}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody, color: C.inkSoft, background: C.bg }}>
+                      Autor: <strong style={{ color: C.ink }}>{user?.name}</strong>
+                    </span>
                     <input
                       type="text"
                       placeholder="Zápas (nepovinné)"
