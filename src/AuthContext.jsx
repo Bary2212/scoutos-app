@@ -59,12 +59,23 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  const resendCode = async (email) => {
+    const res = await fetch(`${API_BASE}/api/auth/resend-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Kód se nepodařilo poslat.");
+    return data;
+  };
+
   const logout = () => {
     clearSession();
     setUser(null);
   };
 
-  return <AuthContext.Provider value={{ user, login, register, verify, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, login, register, verify, resendCode, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

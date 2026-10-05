@@ -165,6 +165,52 @@ app.post("/api/auth/verify", async (req, res) => {
   }
 });
 
+// Znovu odešle ověřovací kód (nový kód, platí 24 h). Odpověď je stejná i pro
+// neexistující/ověřený účet, aby se přes ni nedalo zjišťovat, kdo je registrovaný.
+// Limit: max. 1 odeslání za 60 s (odvozeno z verification_expires, bez nového sloupce).
+app.post("/api/auth/resend-code", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Chybí e-mail." });
+
+    const { rows } = await pool.query("SELECT * FROM users WHERE lower(email) = lower($1)", [String(email).trim()]);
+    const user = rows[0];
+    const okResponse = { message: "Pokud účet existuje a není ověřený, poslali jsme nový kód." };
+    if (!user || user.verified) return res.json(okResponse);
+
+    const DAY = 24 * 60 * 60 * 1000;
+    const lastSentAt = Number(user.verification_expires) - DAY;
+    if (Date.now() - lastSentAt < 60 * 1000) {
+      return res.status(429).json({ error: "Kód jsme právě poslali. Počkej minutu a zkus to znovu." });
+    }
+
+    const verificationCode = generateCode();
+    await pool.query("UPDATE users SET verification_code = $1, verification_expires = $2 WHERE id = $3", [
+      verificationCode,
+      Date.now() + DAY,
+      user.id,
+    ]);
+
+    try {
+      await sendMail({
+        to: user.email,
+        subject: "Nový ověřovací kód ScoutOS",
+        html: `
+          <p>Ahoj ${user.first_name || ""},</p>
+          <p>tvůj nový ověřovací kód je: <strong style="font-size:20px">${verificationCode}</strong></p>
+          <p>Platí 24 hodin.</p>
+        `,
+      });
+    } catch (mailErr) {
+      console.error("Nepodařilo se odeslat ověřovací e-mail:", mailErr.message);
+      return res.status(502).json({ error: "E-mail se nepodařilo odeslat. Zkus to prosím později." });
+    }
+    res.json(okResponse);
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se poslat kód.", detail: err.message });
+  }
+});
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;

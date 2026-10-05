@@ -22,7 +22,7 @@ const inputStyle = { width: "100%", padding: "9px 10px", marginBottom: 16, borde
 const labelStyle = { display: "block", fontSize: 12, color: C.inkFaint, marginBottom: 6 };
 
 export default function Login() {
-  const { login, register, verify } = useAuth();
+  const { login, register, verify, resendCode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -104,6 +104,19 @@ export default function Login() {
     try {
       await verify(email, code);
       navigate(redirectTo, { replace: true });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResend = async () => {
+    resetMessages();
+    setSubmitting(true);
+    try {
+      await resendCode(email);
+      setInfo("Poslali jsme nový kód. Zkontroluj e-mail i složku Spam.");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -208,6 +221,9 @@ export default function Login() {
             />
             <button type="submit" disabled={submitting} style={buttonStyle(submitting)}>
               {submitting ? "Ověřuji…" : "Ověřit a přihlásit se"}
+            </button>
+            <button type="button" onClick={handleResend} disabled={submitting || !email} style={linkButtonStyle}>
+              Poslat kód znovu
             </button>
             <button type="button" onClick={() => { setMode("login"); resetMessages(); }} style={linkButtonStyle}>
               Zpět na přihlášení
