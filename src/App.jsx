@@ -14,6 +14,7 @@ import Login from "./pages/Login.jsx";
 import Club from "./pages/Club.jsx";
 import Shortlist from "./pages/Shortlist.jsx";
 import ComparePlayers from "./pages/ComparePlayers.jsx";
+import AdminOverview from "./pages/AdminOverview.jsx";
 import PublicPlayerProfile from "./pages/PublicPlayerProfile.jsx";
 
 const NAV = [
@@ -41,6 +42,8 @@ function ProtectedRoute({ children }) {
 function TopNav() {
   const location = useLocation();
   const { user, logout } = useAuth();
+  // Odkaz "Admin" vidí jen majitel appky (backend nastaví user.isAdmin podle ADMIN_EMAIL).
+  const navItems = user?.isAdmin ? [...NAV, { to: "/admin", label: "Admin" }] : NAV;
 
   return (
     <div
@@ -64,7 +67,7 @@ function TopNav() {
         </div>
         {user && (
           <div style={{ display: "flex", gap: 20 }}>
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const active = location.pathname === item.to;
               return (
                 <Link
@@ -120,6 +123,7 @@ function AppRoutes() {
       <Route path="/klub" element={<ProtectedRoute><Club /></ProtectedRoute>} />
       <Route path="/shortlist" element={<ProtectedRoute><Shortlist /></ProtectedRoute>} />
       <Route path="/porovnani" element={<ProtectedRoute><ComparePlayers /></ProtectedRoute>} />
+      <Route path="/admin" element={<ProtectedRoute><AdminOverview /></ProtectedRoute>} />
     </Routes>
   );
 }

@@ -59,8 +59,19 @@ CREATE TABLE IF NOT EXISTS clubs (
   name TEXT NOT NULL,
   invite_code TEXT UNIQUE NOT NULL,
   created_by INTEGER,
+  -- Tarif klubu pro admin přehled majitele appky ('free' | 'paid'). Zatím se
+  -- nastavuje ručně (platba fakturou); až bude platební brána, bude se plnit sama.
+  plan TEXT NOT NULL DEFAULT 'free',
+  plan_note TEXT,
+  plan_updated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Appka už dřív běžela bez sloupců tarifu — ADD COLUMN IF NOT EXISTS je bezpečně
+-- doplní i do existující produkční databáze (musí stát PO CREATE TABLE clubs).
+ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan_note TEXT;
+ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan_updated_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,

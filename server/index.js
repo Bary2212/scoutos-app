@@ -21,16 +21,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Majitel appky (admin přehled) = účet, jehož e-mail je nastavený v proměnné
+// prostředí ADMIN_EMAIL (na Renderu). Bez nastavené proměnné není admin nikdo —
+// admin endpointy tedy bezpečně odpovídají 403 všem.
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+function isAdminEmail(email) {
+  return !!ADMIN_EMAIL && String(email || "").trim().toLowerCase() === ADMIN_EMAIL;
+}
+
+function requireAdmin(req, res, next) {
+  if (!isAdminEmail(req.user?.email)) return res.status(403).json({ error: "K tomuhle nemáš oprávnění." });
+  next();
+}
+
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team },
+    { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team, isAdmin: isAdminEmail(user.email) },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
 }
 
 function publicUser(user) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team };
+  return { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team, isAdmin: isAdminEmail(user.email) };
 }
 
 // ---------- E-MAIL — posílá se přes Brevo HTTP API (nastavuje se v proměnných prostředí) ----------
@@ -226,6 +239,95 @@ app.use("/api", (req, res, next) => {
     next();
   } catch (err) {
     return res.status(401).json({ error: "Neplatný nebo vypršelý token, přihlas se prosím znovu." });
+  }
+});
+
+// ---------- ADMIN PŘEHLED MAJITELE APPKY — jen pro e-mail z ADMIN_EMAIL ----------
+// Do statistik se nepočítají demo účty ani neověřené registrace (ty se ukazují zvlášť).
+app.get("/api/admin/overview", requireAdmin, async (req, res) => {
+  try {
+    const { rows: totalsRows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM users WHERE NOT is_demo_team AND verified) AS users_verified,
+        (SELECT COUNT(*)::int FROM users WHERE NOT is_demo_team AND NOT verified) AS users_unverified,
+        (SELECT COUNT(*)::int FROM users WHERE NOT is_demo_team AND verified AND created_at > now() - interval '7 days') AS signups_7d,
+        (SELECT COUNT(*)::int FROM users WHERE NOT is_demo_team AND verified AND created_at > now() - interval '30 days') AS signups_30d,
+        (SELECT COUNT(DISTINCT e.player_id)::int FROM player_evaluations e JOIN users u ON u.id = e.user_id WHERE NOT u.is_demo_team) AS players_tracked,
+        (SELECT COUNT(*)::int FROM player_evaluations e JOIN users u ON u.id = e.user_id WHERE NOT u.is_demo_team) AS evaluations
+    `);
+    const totals = totalsRows[0];
+
+    const { rows: clubRows } = await pool.query(`
+      SELECT c.id, c.name, c.created_at, c.plan, c.plan_note, c.plan_updated_at,
+             COUNT(u.id)::int AS scouts,
+             (SELECT COUNT(*)::int FROM player_evaluations e JOIN users uu ON uu.id = e.user_id WHERE uu.club_id = c.id) AS evaluations,
+             (SELECT MAX(e.updated_at) FROM player_evaluations e JOIN users uu ON uu.id = e.user_id WHERE uu.club_id = c.id) AS last_activity
+      FROM clubs c
+      JOIN users u ON u.club_id = c.id AND NOT u.is_demo_team AND u.verified
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `);
+
+    const { rows: seriesRows } = await pool.query(`
+      SELECT to_char(d::date, 'YYYY-MM-DD') AS day,
+             (SELECT COUNT(*)::int FROM users u
+              WHERE NOT u.is_demo_team AND u.verified AND u.created_at::date = d::date) AS count
+      FROM generate_series(current_date - 29, current_date, interval '1 day') d
+      ORDER BY d
+    `);
+
+    const { rows: recentRows } = await pool.query(`
+      SELECT u.name, u.email, u.role, u.created_at, c.name AS club_name
+      FROM users u LEFT JOIN clubs c ON c.id = u.club_id
+      WHERE NOT u.is_demo_team AND u.verified
+      ORDER BY u.created_at DESC
+      LIMIT 10
+    `);
+
+    res.json({
+      totals: {
+        users: totals.users_verified,
+        unverifiedUsers: totals.users_unverified,
+        clubs: clubRows.length,
+        paidClubs: clubRows.filter((c) => c.plan === "paid").length,
+        signups7d: totals.signups_7d,
+        signups30d: totals.signups_30d,
+        playersTracked: totals.players_tracked,
+        evaluations: totals.evaluations,
+      },
+      signupsByDay: seriesRows.map((r) => ({ day: r.day, count: r.count })),
+      clubs: clubRows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        createdAt: c.created_at,
+        plan: c.plan,
+        planNote: c.plan_note,
+        planUpdatedAt: c.plan_updated_at,
+        scouts: c.scouts,
+        evaluations: c.evaluations,
+        lastActivity: c.last_activity,
+      })),
+      recentSignups: recentRows.map((u) => ({ name: u.name, email: u.email, role: u.role, clubName: u.club_name, createdAt: u.created_at })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst admin přehled.", detail: err.message });
+  }
+});
+
+// Ruční nastavení tarifu klubu (zdarma / placený) + krátká poznámka, např. číslo faktury.
+app.patch("/api/admin/clubs/:id/plan", requireAdmin, async (req, res) => {
+  try {
+    const { plan, note } = req.body || {};
+    if (!["free", "paid"].includes(plan)) return res.status(400).json({ error: "Neplatný tarif." });
+    const cleanNote = typeof note === "string" && note.trim() ? note.trim().slice(0, 200) : null;
+    const { rows } = await pool.query(
+      "UPDATE clubs SET plan = $1, plan_note = $2, plan_updated_at = now() WHERE id = $3 RETURNING id, plan, plan_note, plan_updated_at",
+      [plan, cleanNote, Number(req.params.id)]
+    );
+    if (!rows[0]) return res.status(404).json({ error: "Klub nenalezen." });
+    res.json({ id: rows[0].id, plan: rows[0].plan, planNote: rows[0].plan_note, planUpdatedAt: rows[0].plan_updated_at });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se uložit tarif.", detail: err.message });
   }
 });
 
