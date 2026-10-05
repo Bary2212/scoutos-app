@@ -93,7 +93,15 @@ function ScoreDial({ value, highlight }) {
 function MetricRow({ label, values }) {
   const max = Math.max(...values.filter((v) => v !== null && v !== undefined));
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${values.length}, 1fr)`, alignItems: "center", gap: 10, padding: "7px 0" }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `180px repeat(${values.length}, minmax(90px, 1fr))`,
+        alignItems: "center",
+        gap: 10,
+        padding: "7px 0",
+      }}
+    >
       <span style={{ fontSize: 12.5, color: C.inkSoft }}>{label}</span>
       {values.map((v, i) => {
         const has = v !== null && v !== undefined;
@@ -179,7 +187,7 @@ export default function ComparePlayers() {
           <AlertTriangle size={26} color={C.inkFaint} style={{ marginBottom: 10 }} />
           <div style={{ fontFamily: fontDisplay, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Není co porovnávat</div>
           <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 20 }}>
-            Vyber na Shortlistě 2 až 3 hráče a klikni na „Porovnat“.
+            Vyber na Shortlistě 2 až 6 hráčů a klikni na „Porovnat“.
           </div>
           <Link to="/shortlist" style={{ fontSize: 13, fontWeight: 600, color: C.turf, textDecoration: "none" }}>
             ← Zpět na Shortlist
@@ -304,24 +312,31 @@ export default function ComparePlayers() {
         {metricOrder.length > 0 && (
           <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "20px 24px" }}>
             <div style={{ fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Srovnání metrik</div>
-            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${scored.length}, 1fr)`, gap: 10, marginBottom: 4 }}>
-              <span />
-              {scored.map(({ player }) => (
-                <span key={player.id} style={{ fontSize: 11, fontWeight: 600, color: C.inkFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {player.name}
-                </span>
-              ))}
+            {/* Při víc hráčích (5–6) se sloupce nezmenší pod čitelnou šířku —
+                místo toho se tabulka horizontálně scrolluje, podobně jako
+                kanban na Shortlistě. */}
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ minWidth: 180 + scored.length * 90 }}>
+                <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${scored.length}, minmax(90px, 1fr))`, gap: 10, marginBottom: 4 }}>
+                  <span />
+                  {scored.map(({ player }) => (
+                    <span key={player.id} style={{ fontSize: 11, fontWeight: 600, color: C.inkFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {player.name}
+                    </span>
+                  ))}
+                </div>
+                {metricOrder.map((m) => (
+                  <MetricRow
+                    key={m.id}
+                    label={m.label}
+                    values={scored.map((s) => {
+                      const stat = (s.player.breakdown || []).find((x) => x.id === m.id);
+                      return stat ? stat.percentile : null;
+                    })}
+                  />
+                ))}
+              </div>
             </div>
-            {metricOrder.map((m) => (
-              <MetricRow
-                key={m.id}
-                label={m.label}
-                values={scored.map((s) => {
-                  const stat = (s.player.breakdown || []).find((x) => x.id === m.id);
-                  return stat ? stat.percentile : null;
-                })}
-              />
-            ))}
           </div>
         )}
       </div>

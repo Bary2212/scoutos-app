@@ -130,7 +130,8 @@ export default function Shortlist() {
   }
 
   const totalCount = board ? Object.values(board).reduce((sum, arr) => sum + arr.length, 0) : 0;
-  const compareDisabled = selected.size < 2 || selected.size > 3;
+  const COMPARE_MAX = 6;
+  const compareDisabled = selected.size < 2 || selected.size > COMPARE_MAX;
 
   return (
     <div style={{ background: C.bg, minHeight: "calc(100vh - 56px)", fontFamily: fontBody, color: C.ink }}>
@@ -160,7 +161,7 @@ export default function Shortlist() {
               <button
                 onClick={comparePlayers}
                 disabled={compareDisabled}
-                title={compareDisabled ? "Vyber 2–3 hráče k porovnání" : "Porovnat vybrané hráče"}
+                title={compareDisabled ? `Vyber 2–${COMPARE_MAX} hráčů k porovnání` : "Porovnat vybrané hráče"}
                 style={{
                   display: "flex",
                   alignItems: "center",
