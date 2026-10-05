@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { BarChart3, Loader2, Check } from "lucide-react";
 import { apiFetch } from "../api.js";
+import AdminUsers from "./AdminUsers.jsx";
 
 // Admin přehled majitele appky — počty uživatelů a klubů, registrace v čase a
 // ruční správa tarifu klubů (zdarma / placený). Backend ho pustí jen účtu,
@@ -82,37 +83,61 @@ function SignupsChart({ data }) {
 }
 
 function ClubRow({ club, onSaved }) {
+  const [clubName, setClubName] = useState(club.name);
   const [plan, setPlan] = useState(club.plan);
   const [note, setNote] = useState(club.planNote || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(false);
 
-  const dirty = plan !== club.plan || (note.trim() || "") !== (club.planNote || "");
+  const nameChanged = clubName.trim() !== club.name;
+  const planChanged = plan !== club.plan || (note.trim() || "") !== (club.planNote || "");
+  const dirty = (nameChanged && clubName.trim() !== "") || planChanged;
 
-  function save() {
+  async function save() {
     setSaving(true);
     setError(false);
-    apiFetch(`/api/admin/clubs/${club.id}/plan`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan, note }),
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data) => {
-        onSaved(club.id, data);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1800);
-      })
-      .catch(() => setError(true))
-      .finally(() => setSaving(false));
+    try {
+      let result = { plan: club.plan, planNote: club.planNote, planUpdatedAt: club.planUpdatedAt, name: club.name };
+      if (nameChanged && clubName.trim()) {
+        const r = await apiFetch(`/api/admin/clubs/${club.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: clubName }),
+        });
+        if (!r.ok) throw new Error();
+        result = { ...result, name: (await r.json()).name };
+      }
+      if (planChanged) {
+        const r = await apiFetch(`/api/admin/clubs/${club.id}/plan`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan, note }),
+        });
+        if (!r.ok) throw new Error();
+        result = { ...result, ...(await r.json()) };
+      }
+      onSaved(club.id, result);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+    } catch {
+      setError(true);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const cell = { padding: "9px 10px", fontSize: 12.5, borderBottom: `1px solid ${C.lineSoft}`, verticalAlign: "middle" };
 
   return (
     <tr>
-      <td style={{ ...cell, fontWeight: 600 }}>{club.name}</td>
+      <td style={cell}>
+        <input
+          value={clubName}
+          onChange={(e) => setClubName(e.target.value.slice(0, 100))}
+          style={{ width: "100%", minWidth: 150, boxSizing: "border-box", fontFamily: fontBody, fontSize: 12.5, fontWeight: 600, padding: "5px 8px", border: `1px solid ${C.lineSoft}`, borderRadius: 4, background: "transparent" }}
+        />
+      </td>
       <td style={{ ...cell, textAlign: "right", fontFamily: fontMono }}>{club.scouts}</td>
       <td style={{ ...cell, textAlign: "right", fontFamily: fontMono }}>{club.evaluations}</td>
       <td style={{ ...cell, color: C.inkSoft }}>{fmtRelative(club.lastActivity)}</td>
@@ -174,6 +199,7 @@ function ClubRow({ club, onSaved }) {
 export default function AdminOverview() {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("loading"); // loading | ok | forbidden | error
+  const [tab, setTab] = useState("overview"); // overview | users
 
   useEffect(() => {
     apiFetch("/api/admin/overview")
@@ -195,7 +221,7 @@ export default function AdminOverview() {
 
   function handleSaved(clubId, saved) {
     setData((d) => {
-      const clubs = d.clubs.map((c) => (c.id === clubId ? { ...c, plan: saved.plan, planNote: saved.planNote, planUpdatedAt: saved.planUpdatedAt } : c));
+      const clubs = d.clubs.map((c) => (c.id === clubId ? { ...c, name: saved.name ?? c.name, plan: saved.plan, planNote: saved.planNote, planUpdatedAt: saved.planUpdatedAt } : c));
       return { ...d, clubs, totals: { ...d.totals, paidClubs: clubs.filter((c) => c.plan === "paid").length } };
     });
   }
@@ -236,7 +262,34 @@ export default function AdminOverview() {
           <BarChart3 size={18} color={C.turf} />
           <h1 style={{ fontFamily: fontDisplay, fontSize: 22, fontWeight: 700, margin: 0 }}>Admin přehled</h1>
         </div>
-        <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 20 }}>Bez demo účtů a bez neověřených registrací.</div>
+        <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 14 }}>Přehled bez demo účtů a bez neověřených registrací. Všechny účty najdeš v záložce Uživatelé.</div>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 20, borderBottom: `1px solid ${C.line}` }}>
+          {[["overview", "Přehled"], ["users", "Uživatelé"]].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              style={{
+                fontFamily: fontBody,
+                fontSize: 13,
+                fontWeight: tab === id ? 700 : 500,
+                padding: "8px 14px",
+                border: "none",
+                borderBottom: `2px solid ${tab === id ? C.turf : "transparent"}`,
+                background: "none",
+                color: tab === id ? C.ink : C.inkFaint,
+                cursor: "pointer",
+                marginBottom: -1,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "users" && <AdminUsers />}
+        {tab === "overview" && (
+          <>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginBottom: 20 }}>
           <Tile label="Ověření uživatelé" value={totals.users} sub={totals.unverifiedUsers > 0 ? `+ ${totals.unverifiedUsers} neověřených` : undefined} />
@@ -316,6 +369,8 @@ export default function AdminOverview() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
     </div>
   );

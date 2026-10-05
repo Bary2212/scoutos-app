@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS users (
 -- že se bezpečně doplní i do existující produkční databáze bez club_id.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS club_id INTEGER REFERENCES clubs(id) ON DELETE SET NULL;
 
+-- Poslední přihlášení (zobrazuje se v admin přehledu).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
 -- 'players' je od verze se "sdílenou databází hráčů" jen ZÁKLADNÍ IDENTITA hráče
 -- (jméno, pozice, věk, klub...) — společná pro všechny scouty/kluby v appce, aby se
 -- stejný hráč nezakládal víckrát. owner_id/is_shared_demo/scores/reason/analytics/

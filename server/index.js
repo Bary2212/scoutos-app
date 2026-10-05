@@ -46,6 +46,40 @@ function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team, isAdmin: isAdminEmail(user.email) };
 }
 
+// Smaže uživatele tak, aby se nesmazala cizí data. players.owner_id má ON DELETE
+// CASCADE — kdyby se hráč, kterého uživatel založil, smazal, zmizela by i hodnocení
+// ostatních skautů. Proto hráče, které hodnotí i někdo jiný, nejdřív "odpojíme" od
+// vlastníka. Klub, který po smazání zůstane bez uživatelů, se smaže také.
+async function deleteUserAndCleanup(userId) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query("SELECT club_id FROM users WHERE id = $1 FOR UPDATE", [userId]);
+    if (!rows[0]) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    const clubId = rows[0].club_id;
+    await client.query(
+      `UPDATE players SET owner_id = NULL
+       WHERE owner_id = $1 AND id IN (SELECT player_id FROM player_evaluations WHERE user_id <> $1)`,
+      [userId]
+    );
+    await client.query("DELETE FROM users WHERE id = $1", [userId]);
+    if (clubId) {
+      const { rows: left } = await client.query("SELECT 1 FROM users WHERE club_id = $1 LIMIT 1", [clubId]);
+      if (left.length === 0) await client.query("DELETE FROM clubs WHERE id = $1", [clubId]);
+    }
+    await client.query("COMMIT");
+    return true;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // ---------- E-MAIL — posílá se přes Brevo HTTP API (nastavuje se v proměnných prostředí) ----------
 const emailConfigured = !!(process.env.BREVO_API_KEY && process.env.EMAIL_USER);
 
@@ -80,9 +114,15 @@ app.post("/api/auth/register", async (req, res) => {
     if (password.length < 8) return res.status(400).json({ error: "Heslo musí mít alespoň 8 znaků." });
     if (password !== passwordConfirm) return res.status(400).json({ error: "Hesla se neshodují." });
 
-    const existing = await pool.query("SELECT id FROM users WHERE lower(email) = lower($1)", [email]);
+    const existing = await pool.query("SELECT id, verified, is_demo_team FROM users WHERE lower(email) = lower($1)", [email]);
     if (existing.rows.length > 0) {
-      return res.status(409).json({ error: "Účet s tímto e-mailem už existuje." });
+      const old = existing.rows[0];
+      // Neověřená registrace (nikdo nezadal kód) se dá založit znovu — starý, prázdný
+      // účet se smaže a vznikne nový s novým kódem. Ověřený účet zůstává chráněný.
+      if (old.verified || old.is_demo_team) {
+        return res.status(409).json({ error: "Účet s tímto e-mailem už existuje." });
+      }
+      await deleteUserAndCleanup(old.id);
     }
 
     // Pozvánkový kód (nepovinný) → nový účet se přidá jako běžný skaut do
@@ -157,6 +197,7 @@ app.post("/api/auth/verify", async (req, res) => {
       [user.id]
     );
     user.verified = true;
+    await pool.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
 
     const token = signToken(user);
     res.json({ token, user: publicUser(user) });
@@ -224,6 +265,7 @@ app.post("/api/auth/login", async (req, res) => {
     if (!user.verified) {
       return res.status(403).json({ error: "Účet ještě není ověřený. Zkontroluj e-mail a zadej ověřovací kód.", needsVerification: true, email: user.email });
     }
+    await pool.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
     const token = signToken(user);
     res.json({ token, user: publicUser(user) });
   } catch (err) {
@@ -304,14 +346,14 @@ app.get("/api/admin/overview", requireAdmin, async (req, res) => {
     const totals = totalsRows[0];
 
     const { rows: clubRows } = await pool.query(`
-      SELECT c.id, c.name, c.created_at, c.plan, c.plan_note, c.plan_updated_at,
+      SELECT c.id, c.name, COALESCE(MIN(u.created_at), c.created_at) AS created_at, c.plan, c.plan_note, c.plan_updated_at,
              COUNT(u.id)::int AS scouts,
              (SELECT COUNT(*)::int FROM player_evaluations e JOIN users uu ON uu.id = e.user_id WHERE uu.club_id = c.id) AS evaluations,
              (SELECT MAX(e.updated_at) FROM player_evaluations e JOIN users uu ON uu.id = e.user_id WHERE uu.club_id = c.id) AS last_activity
       FROM clubs c
       JOIN users u ON u.club_id = c.id AND NOT u.is_demo_team AND u.verified
       GROUP BY c.id
-      ORDER BY c.created_at DESC
+      ORDER BY COALESCE(MIN(u.created_at), c.created_at) DESC
     `);
 
     const { rows: seriesRows } = await pool.query(`
@@ -374,6 +416,201 @@ app.patch("/api/admin/clubs/:id/plan", requireAdmin, async (req, res) => {
     res.json({ id: rows[0].id, plan: rows[0].plan, planNote: rows[0].plan_note, planUpdatedAt: rows[0].plan_updated_at });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se uložit tarif.", detail: err.message });
+  }
+});
+
+// ---------- ADMIN — správa uživatelů ----------
+function adminUserRow(u) {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    verified: u.verified,
+    isDemo: !!u.is_demo_team,
+    isSelf: false,
+    clubId: u.club_id,
+    clubName: u.club_name,
+    clubPlan: u.club_plan,
+    createdAt: u.created_at,
+    lastLoginAt: u.last_login_at,
+    evaluations: u.evaluations,
+  };
+}
+
+async function loadAdminUser(id) {
+  const { rows } = await pool.query(
+    `SELECT u.*, c.name AS club_name, c.plan AS club_plan,
+            (SELECT COUNT(*)::int FROM player_evaluations e WHERE e.user_id = u.id) AS evaluations
+     FROM users u LEFT JOIN clubs c ON c.id = u.club_id WHERE u.id = $1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.*, c.name AS club_name, c.plan AS club_plan,
+              (SELECT COUNT(*)::int FROM player_evaluations e WHERE e.user_id = u.id) AS evaluations
+       FROM users u LEFT JOIN clubs c ON c.id = u.club_id
+       ORDER BY u.created_at DESC LIMIT 2000`
+    );
+    res.json(rows.map((u) => ({ ...adminUserRow(u), isSelf: u.id === req.user.id })));
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst uživatele.", detail: err.message });
+  }
+});
+
+// Úprava jména, e-mailu a role.
+app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await loadAdminUser(id);
+    if (!user) return res.status(404).json({ error: "Uživatel nenalezen." });
+
+    const updates = [];
+    const values = [];
+    const push = (col, val) => {
+      values.push(val);
+      updates.push(`${col} = $${values.length}`);
+    };
+
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name).trim().slice(0, 120);
+      if (!name) return res.status(400).json({ error: "Jméno nesmí být prázdné." });
+      const [first, ...rest] = name.split(/\s+/);
+      push("name", name);
+      push("first_name", first);
+      push("last_name", rest.join(" "));
+    }
+    if (req.body.email !== undefined) {
+      const email = String(req.body.email).trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "Neplatný e-mail." });
+      if (email.toLowerCase() !== String(user.email).toLowerCase()) {
+        if (isAdminEmail(user.email)) {
+          return res.status(400).json({ error: "E-mail admin účtu se tu měnit nedá (je vázaný na ADMIN_EMAIL na Renderu)." });
+        }
+        const dup = await pool.query("SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2", [email, id]);
+        if (dup.rows.length > 0) return res.status(409).json({ error: "Tenhle e-mail už používá jiný účet." });
+      }
+      push("email", email);
+    }
+    if (req.body.role !== undefined) {
+      if (!["skaut", "hlavni_skaut"].includes(req.body.role)) return res.status(400).json({ error: "Neplatná role." });
+      push("role", req.body.role);
+    }
+    if (updates.length === 0) return res.status(400).json({ error: "Není co měnit." });
+
+    values.push(id);
+    await pool.query(`UPDATE users SET ${updates.join(", ")} WHERE id = $${values.length}`, values);
+    res.json({ ...adminUserRow(await loadAdminUser(id)), isSelf: id === req.user.id });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se uložit změny.", detail: err.message });
+  }
+});
+
+// Ruční ověření e-mailu (když kód nedorazil).
+app.post("/api/admin/users/:id/verify", requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await loadAdminUser(id);
+    if (!user) return res.status(404).json({ error: "Uživatel nenalezen." });
+    await pool.query("UPDATE users SET verified = true, verification_code = NULL, verification_expires = NULL WHERE id = $1", [id]);
+    res.json({ ...adminUserRow(await loadAdminUser(id)), isSelf: id === req.user.id });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se ověřit účet.", detail: err.message });
+  }
+});
+
+// Znovu pošle ověřovací kód (bez limitu — admin).
+app.post("/api/admin/users/:id/resend-code", requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await loadAdminUser(id);
+    if (!user) return res.status(404).json({ error: "Uživatel nenalezen." });
+    if (user.verified) return res.status(400).json({ error: "Účet už je ověřený." });
+    const code = generateCode();
+    await pool.query("UPDATE users SET verification_code = $1, verification_expires = $2 WHERE id = $3", [code, Date.now() + 24 * 60 * 60 * 1000, id]);
+    try {
+      await sendMail({
+        to: user.email,
+        subject: "Nový ověřovací kód ScoutOS",
+        html: `<p>Ahoj ${user.first_name || ""},</p><p>tvůj nový ověřovací kód je: <strong style="font-size:20px">${code}</strong></p><p>Platí 24 hodin.</p>`,
+      });
+    } catch (mailErr) {
+      console.error("Nepodařilo se odeslat ověřovací e-mail:", mailErr.message);
+      return res.status(502).json({ error: `E-mail se nepodařilo odeslat: ${mailErr.message}` });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se poslat kód.", detail: err.message });
+  }
+});
+
+// Nastaví nové heslo. Bez zadaného hesla se vygeneruje náhodné a vrátí se jednou v odpovědi.
+app.post("/api/admin/users/:id/reset-password", requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await loadAdminUser(id);
+    if (!user) return res.status(404).json({ error: "Uživatel nenalezen." });
+    if (user.is_demo_team) return res.status(400).json({ error: "Heslo demo účtu se měnit nedá." });
+    let password = typeof req.body.password === "string" ? req.body.password : "";
+    if (password && password.length < 8) return res.status(400).json({ error: "Heslo musí mít alespoň 8 znaků." });
+    const generated = !password;
+    if (generated) password = crypto.randomBytes(9).toString("base64url");
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [bcrypt.hashSync(password, 10), id]);
+    res.json({ ok: true, password: generated ? password : undefined });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se změnit heslo.", detail: err.message });
+  }
+});
+
+// Smazání uživatele (i s jeho hodnoceními). Vlastní účet admina a demo účty chráníme.
+app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const user = await loadAdminUser(id);
+    if (!user) return res.status(404).json({ error: "Uživatel nenalezen." });
+    if (id === req.user.id || isAdminEmail(user.email)) return res.status(400).json({ error: "Vlastní admin účet smazat nejde." });
+    if (user.is_demo_team) return res.status(400).json({ error: "Demo účty se mazat nedají." });
+    await deleteUserAndCleanup(id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se smazat uživatele.", detail: err.message });
+  }
+});
+
+// Hromadný úklid: smaže neověřené registrace starší než N dní (výchozí 7).
+app.post("/api/admin/cleanup-unverified", requireAdmin, async (req, res) => {
+  try {
+    const days = Math.max(0, Math.min(365, Number(req.body?.days ?? 7)));
+    const { rows } = await pool.query(
+      `SELECT id, email FROM users
+       WHERE NOT verified AND NOT is_demo_team AND created_at < now() - ($1 || ' days')::interval`,
+      [String(days)]
+    );
+    let deleted = 0;
+    for (const u of rows) {
+      if (isAdminEmail(u.email)) continue;
+      if (await deleteUserAndCleanup(u.id)) deleted += 1;
+    }
+    res.json({ deleted });
+  } catch (err) {
+    res.status(500).json({ error: "Úklid se nepovedl.", detail: err.message });
+  }
+});
+
+// Přejmenování klubu.
+app.patch("/api/admin/clubs/:id", requireAdmin, async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim().slice(0, 100);
+    if (!name) return res.status(400).json({ error: "Název klubu nesmí být prázdný." });
+    const { rowCount } = await pool.query("UPDATE clubs SET name = $1 WHERE id = $2", [name, Number(req.params.id)]);
+    if (rowCount === 0) return res.status(404).json({ error: "Klub nenalezen." });
+    res.json({ ok: true, name });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se přejmenovat klub.", detail: err.message });
   }
 });
 
