@@ -53,8 +53,15 @@ const FOOT_OPTIONS = ["Obě", "Pravá", "Levá"];
 const SORT_OPTIONS = [
   { id: "score", label: "Skóre" },
   { id: "age", label: "Věk (nejmladší)" },
-  { id: "name", label: "Jméno A–Z" },
+  { id: "name", label: "Příjmení A–Z" },
 ];
+
+// Klíč pro řazení podle příjmení: "Karel Suhr" -> "suhr karel" (bez diakritiky, bez mezer navíc).
+function surnameKey(name) {
+  const parts = norm(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  return `${parts[parts.length - 1]} ${parts.slice(0, -1).join(" ")}`;
+}
 
 function scoreColor(score) {
   if (score >= 75) return C.turf;
@@ -125,7 +132,7 @@ export default function PlayerSearch() {
     .filter((p) => (foot === "Obě" ? true : norm(p.foot).startsWith(norm(foot).slice(0, 3))))
     .sort((a, b) => {
       if (sortBy === "age") return (a.age ?? 99) - (b.age ?? 99);
-      if (sortBy === "name") return String(a.name).localeCompare(String(b.name), "cs");
+      if (sortBy === "name") return surnameKey(a.name).localeCompare(surnameKey(b.name));
       return (b.hasMyEvaluation ? b.scores[style] : -1) - (a.hasMyEvaluation ? a.scores[style] : -1);
     });
 
