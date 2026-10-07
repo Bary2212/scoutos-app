@@ -705,6 +705,21 @@ function canEditPlayerIdentity(player, user) {
   return player.owner_id == null && !!user.isDemoTeam;
 }
 
+// Skóre hráče s ručně zadanými metrikami — stejný vzorec jako v src/lib/playerScore.js
+// (zeslabený průměr percentilů). Dřív zůstávalo uložené skóre na výchozích 50, takže
+// Vyhledávání, Shortlist a Radar ukazovaly jiné číslo než profil hráče.
+function manualScoreFromBreakdown(breakdown) {
+  if (!Array.isArray(breakdown) || breakdown.length === 0) return null;
+  const sum = breakdown.reduce((acc, s) => acc + Number(s.percentile || 0), 0);
+  return Math.max(0, Math.min(100, Math.round((62 * 3 + sum) / (3 + breakdown.length))));
+}
+
+function scoresFromAnalytics(analytics, storedScores) {
+  if (!analytics || analytics.styleContributions) return storedScores;
+  const s = manualScoreFromBreakdown(analytics.breakdown);
+  return s === null ? storedScores : { pressing: s, possession: s, defensive: s };
+}
+
 function playerRowToApi(p, evaluation, viewer) {
   const hasMyEvaluation = !!evaluation;
   return {
@@ -722,7 +737,7 @@ function playerRowToApi(p, evaluation, viewer) {
     marketValue: hasMyEvaluation ? Number(evaluation.market_value) : 0,
     minutesTracked: hasMyEvaluation ? evaluation.minutes_tracked : 0,
     riskLevel: hasMyEvaluation ? evaluation.risk_level : "low",
-    scores: hasMyEvaluation ? evaluation.scores : EMPTY_SCORES,
+    scores: hasMyEvaluation ? scoresFromAnalytics(evaluation.analytics, evaluation.scores) : EMPTY_SCORES,
     reason: hasMyEvaluation ? evaluation.reason : EMPTY_REASON,
     pipelineStage: hasMyEvaluation ? evaluation.pipeline_stage : null,
     ...(hasMyEvaluation ? evaluation.analytics || {} : {}),
@@ -1000,6 +1015,14 @@ app.patch("/api/players/:id/analytics", async (req, res) => {
     if (Object.keys(analyticsPatch).length > 0) {
       sets.push(`analytics = analytics || $${i++}::jsonb`);
       values.push(JSON.stringify(analyticsPatch));
+    }
+
+    // Po změně metrik přepočítáme uložené skóre, aby ho viděly i ostatní stránky.
+    if (analyticsPatch.breakdown !== undefined && req.body.scores === undefined) {
+      const newScore = manualScoreFromBreakdown(analyticsPatch.breakdown);
+      const s = newScore === null ? EMPTY_SCORES : { pressing: newScore, possession: newScore, defensive: newScore };
+      sets.push(`scores = $${i++}::jsonb`);
+      values.push(JSON.stringify(s));
     }
 
     values.push(playerId, req.user.id);
@@ -1498,7 +1521,21 @@ app.delete("/api/players/:id/share", async (req, res) => {
 // Render (a podobné hostingy) přidělují port dynamicky přes proměnnou PORT.
 const PORT = process.env.PORT || 4000;
 
+// Jednorázové dopočtení uložených skóre u hráčů s ručními metrikami (idempotentní).
+async function backfillManualScores() {
+  const { rows } = await pool.query(
+    "SELECT id, analytics, scores FROM player_evaluations WHERE jsonb_array_length(COALESCE(analytics->'breakdown', '[]'::jsonb)) > 0 AND analytics->'styleContributions' IS NULL"
+  );
+  for (const r of rows) {
+    const sc = manualScoreFromBreakdown(r.analytics.breakdown);
+    if (sc === null) continue;
+    if (r.scores?.pressing === sc && r.scores?.possession === sc && r.scores?.defensive === sc) continue;
+    await pool.query("UPDATE player_evaluations SET scores = $1::jsonb WHERE id = $2", [JSON.stringify({ pressing: sc, possession: sc, defensive: sc }), r.id]);
+  }
+}
+
 initDb()
+  .then(() => backfillManualScores().catch((e) => console.error("Dopočet skóre selhal:", e.message)))
   .then(() => {
     app.listen(PORT, () => console.log(`ScoutOS backend běží na portu ${PORT}`));
   })
