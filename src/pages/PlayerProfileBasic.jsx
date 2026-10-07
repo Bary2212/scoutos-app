@@ -41,7 +41,7 @@ export default function PlayerProfileBasic() {
   const [reportEditForm, setReportEditForm] = useState(null);
   const [deletingPlayer, setDeletingPlayer] = useState(false);
   const [confirmDeletePlayer, setConfirmDeletePlayer] = useState(false);
-  const [newReport, setNewReport] = useState({ author: "Petr Novák", match: "", recommendation: "Doporučit" });
+  const [newReport, setNewReport] = useState({ match: "", recommendation: "Doporučit" });
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
@@ -143,7 +143,7 @@ export default function PlayerProfileBasic() {
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((created) => {
         setReports((prev) => [created, ...prev]);
-        setNewReport({ author: "Petr Novák", match: "", recommendation: "Doporučit" });
+        setNewReport({ match: "", recommendation: "Doporučit" });
       })
       .catch(() => {})
       .finally(() => setSubmitting(false));
@@ -304,15 +304,6 @@ export default function PlayerProfileBasic() {
                   {isEditing ? (
                     <div>
                       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-                        <select
-                          value={reportEditForm.author}
-                          onChange={(e) => setReportEditForm((f) => ({ ...f, author: e.target.value }))}
-                          style={{ padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
-                        >
-                          <option>Petr Novák</option>
-                          <option>Jana Bartošová</option>
-                          <option>Karel Ryba</option>
-                        </select>
                         <input
                           value={reportEditForm.match}
                           onChange={(e) => setReportEditForm((f) => ({ ...f, match: e.target.value }))}
@@ -372,15 +363,6 @@ export default function PlayerProfileBasic() {
           <form onSubmit={submitReport} style={{ borderTop: `1px solid ${C.lineSoft}`, paddingTop: 18 }}>
             <div style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Přidat nový report</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-              <select
-                value={newReport.author}
-                onChange={(e) => setNewReport((r) => ({ ...r, author: e.target.value }))}
-                style={{ padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
-              >
-                <option>Petr Novák</option>
-                <option>Jana Bartošová</option>
-                <option>Karel Ryba</option>
-              </select>
               <input
                 type="text"
                 placeholder="Zápas (nepovinné)"

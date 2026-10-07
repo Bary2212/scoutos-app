@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
-import { ratingFromPercentile, ratingLabel } from "../data/scoutMetrics.js";
+import { ratingFromPercentile, ratingLabel, groupForMetric, METRIC_GROUPS } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
 import { useAuth } from "../AuthContext.jsx";
 
@@ -361,7 +361,7 @@ function ScoreDial({ value }) {
   );
 }
 
-function StatRow({ stat, contribution, expanded, onToggle, clipsCount, onShowClips }) {
+function StatRow({ stat, contribution, expanded, onToggle, clipsCount, onShowClips, compact }) {
   const positive = contribution >= 0;
   return (
     <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
@@ -369,8 +369,8 @@ function StatRow({ stat, contribution, expanded, onToggle, clipsCount, onShowCli
         onClick={onToggle}
         style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 4px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
       >
-        <span style={{ width: 200, flexShrink: 0, fontFamily: fontBody, fontSize: 14, color: C.ink }}>{stat.label}</span>
-        <div style={{ flex: 1, height: 6, background: C.lineSoft, borderRadius: 3, position: "relative" }}>
+        <span style={compact ? { flex: "1 1 0", minWidth: 0, fontFamily: fontBody, fontSize: 13, color: C.ink } : { width: 200, flexShrink: 0, fontFamily: fontBody, fontSize: 14, color: C.ink }}>{stat.label}</span>
+        <div style={{ ...(compact ? { width: 90, flexShrink: 0 } : { flex: 1 }), height: 6, background: C.lineSoft, borderRadius: 3, position: "relative" }}>
           <div style={{ width: `${stat.percentile}%`, height: "100%", borderRadius: 3, background: C.turf }} />
         </div>
         <span style={{ width: 44, textAlign: "right", fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{ratingFromPercentile(stat.percentile)}/10</span>
@@ -1186,6 +1186,20 @@ export default function PlayerProfile() {
   const { hasAnalytics, score, contributions } = computePlayerScore({ breakdown, styleContributions }, style);
 
   const ranked = hasAnalytics ? [...breakdown].sort((a, b) => contributions[b.id] - contributions[a.id]) : [];
+
+  // Metriky seskupené do kategorií (Hra s míčem, Bránění, ...) s průměrem v hlavičce.
+  const breakdownGroups = (() => {
+    const order = [...METRIC_GROUPS.map((g) => g.id), "vlastni", "ostatni"];
+    const map = new Map();
+    for (const stat of breakdown) {
+      const g = groupForMetric(stat.id);
+      if (!map.has(g.id)) map.set(g.id, { id: g.id, label: g.label, stats: [] });
+      map.get(g.id).stats.push(stat);
+    }
+    return [...map.values()]
+      .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+      .map((g) => ({ ...g, avg: g.stats.reduce((sum, s) => sum + ratingFromPercentile(s.percentile), 0) / g.stats.length }));
+  })();
   const topPositive = ranked[0] || null;
   const topNegative = ranked[ranked.length - 1] || null;
 
@@ -1500,23 +1514,34 @@ export default function PlayerProfile() {
                     )}
 
                     <SectionLabel>Rozklad skóre po metrikách</SectionLabel>
-                    <p style={{ fontSize: 12, color: C.inkFaint, margin: "0 0 6px", lineHeight: 1.5 }}>
-                      Číslo u pruhu je hodnocení 1–10 (5 = průměr, 10 = elita). Šipka vpravo ukazuje, jak moc je metrika nad průměrem (nahoru) nebo pod ním (dolů).
+                    <p style={{ fontSize: 12, color: C.inkFaint, margin: "0 0 14px", lineHeight: 1.5 }}>
+                      Číslo v záhlaví kategorie je průměr jejích metrik. Číslo u pruhu je hodnocení 1–10 (5 = průměr, 10 = elita). Šipka vpravo ukazuje, jak moc je metrika nad průměrem (nahoru) nebo pod ním (dolů).
                     </p>
-                    <div>
-                      {breakdown.map((stat) => (
-                        <StatRow
-                          key={stat.id}
-                          stat={stat}
-                          contribution={contributions[stat.id]}
-                          expanded={expandedStat === stat.id}
-                          onToggle={() => setExpandedStat(expandedStat === stat.id ? null : stat.id)}
-                          clipsCount={stat.tag ? clipsForTag(stat.tag).length : 0}
-                          onShowClips={() => {
-                            setHighlightTag(stat.tag);
-                            setActiveTab("Video");
-                          }}
-                        />
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: "22px 32px" }}>
+                      {breakdownGroups.map((group) => (
+                        <div key={group.id}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: `2px solid ${C.ink}`, paddingBottom: 6, marginBottom: 2 }}>
+                            <span style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: C.ink }}>{group.label}</span>
+                            <span style={{ fontFamily: fontMono, fontSize: 18, fontWeight: 700, color: C.turf }}>
+                              {group.avg.toFixed(1)}<span style={{ fontSize: 11, color: C.inkFaint, fontWeight: 500 }}>/10</span>
+                            </span>
+                          </div>
+                          {group.stats.map((stat) => (
+                            <StatRow
+                              key={stat.id}
+                              compact
+                              stat={stat}
+                              contribution={contributions[stat.id]}
+                              expanded={expandedStat === stat.id}
+                              onToggle={() => setExpandedStat(expandedStat === stat.id ? null : stat.id)}
+                              clipsCount={stat.tag ? clipsForTag(stat.tag).length : 0}
+                              onShowClips={() => {
+                                setHighlightTag(stat.tag);
+                                setActiveTab("Video");
+                              }}
+                            />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   </>

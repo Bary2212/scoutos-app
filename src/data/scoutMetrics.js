@@ -119,6 +119,14 @@ export function ratingLabel(percentile) {
   return RATING_LABELS[ratingFromPercentile(percentile)];
 }
 
+// Do které skupiny metrika patří (pro seskupení na profilu).
+// Vlastní metriky a neznámá (demo) id spadnou do "Ostatní".
+export function groupForMetric(metricId) {
+  if (String(metricId).startsWith("custom-")) return { id: "vlastni", label: "Vlastní metriky" };
+  const g = METRIC_GROUPS.find((x) => x.metrics.some((m) => m.id === metricId));
+  return g ? { id: g.id, label: g.label } : { id: "ostatni", label: "Ostatní metriky" };
+}
+
 // Skupiny relevantní pro danou pozici (brankář vs. hráč do pole).
 export function groupsForPosition(position) {
   const isGoalkeeper = position === "Brankář";
