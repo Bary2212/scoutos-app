@@ -249,7 +249,7 @@ export default function PlayerSearch() {
                         </Link>
                       </div>
                       <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>
-                        {p.position} — {p.club} — {p.age} let{p.hasMyEvaluation ? ` — ${p.marketValue.toFixed(1)}M €` : ""}
+                        {p.position} — {p.club} — {p.age} let{p.hasMyEvaluation && p.marketValue > 0 ? ` — ${p.marketValue.toFixed(1)}M €` : ""}
                       </div>
                     </div>
                   </div>
