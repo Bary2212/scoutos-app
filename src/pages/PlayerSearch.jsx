@@ -43,6 +43,19 @@ function categoryOf(position) {
 // Data hráčů teď přicházejí ze skutečného backendu (server/index.js + server/data/db.json),
 // ne z pole natvrdo v kódu jako dřív.
 
+// Porovnání bez diakritiky a velikosti písmen ("Kovar" najde "Kovář").
+function norm(str) {
+  return String(str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+const STATUS_OPTIONS = ["Všichni", "Moje hodnocení", "Nehodnocení"];
+const FOOT_OPTIONS = ["Obě", "Pravá", "Levá"];
+const SORT_OPTIONS = [
+  { id: "score", label: "Skóre" },
+  { id: "age", label: "Věk (nejmladší)" },
+  { id: "name", label: "Jméno A–Z" },
+];
+
 function scoreColor(score) {
   if (score >= 75) return C.turf;
   if (score >= 60) return C.amber;
@@ -78,6 +91,11 @@ export default function PlayerSearch() {
   const [style, setStyle] = useState("pressing");
   const [category, setCategory] = useState("Vše");
   const [maxAge, setMaxAge] = useState(30);
+  const [minAge, setMinAge] = useState(14);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("Všichni");
+  const [foot, setFoot] = useState("Obě");
+  const [sortBy, setSortBy] = useState("score");
   const [maxBudget, setMaxBudget] = useState(3);
   const [expanded, setExpanded] = useState(null);
   const [results, setResults] = useState([]);
@@ -98,6 +116,19 @@ export default function PlayerSearch() {
       .finally(() => setLoading(false));
   }, [style, category, maxAge, maxBudget]);
 
+  // Textové hledání a doplňkové filtry běží v prohlížeči nad výsledky ze serveru.
+  const q = norm(query.trim());
+  const visible = results
+    .filter((p) => !q || norm(p.name).includes(q) || norm(p.club).includes(q))
+    .filter((p) => (p.age ?? 0) >= minAge)
+    .filter((p) => (status === "Moje hodnocení" ? p.hasMyEvaluation : status === "Nehodnocení" ? !p.hasMyEvaluation : true))
+    .filter((p) => (foot === "Obě" ? true : norm(p.foot).startsWith(norm(foot).slice(0, 3))))
+    .sort((a, b) => {
+      if (sortBy === "age") return (a.age ?? 99) - (b.age ?? 99);
+      if (sortBy === "name") return String(a.name).localeCompare(String(b.name), "cs");
+      return (b.hasMyEvaluation ? b.scores[style] : -1) - (a.hasMyEvaluation ? a.scores[style] : -1);
+    });
+
   return (
     <div style={{ background: C.bg, minHeight: "calc(100vh - 56px)", fontFamily: fontBody, color: C.ink }}>
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 20px 60px" }}>
@@ -116,6 +147,13 @@ export default function PlayerSearch() {
 
         {/* ---------- Filters ---------- */}
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 20 }}>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Hledat podle jména nebo klubu…"
+            style={{ ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: 16, fontSize: 14 }}
+          />
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
             <div>
               <label style={labelStyle}>Pozice</label>
@@ -126,8 +164,24 @@ export default function PlayerSearch() {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Max. věk</label>
+              <label style={labelStyle}>Věk od</label>
+              <input type="number" value={minAge} onChange={(e) => setMinAge(Number(e.target.value))} style={{ ...inputStyle, width: 70 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Věk do</label>
               <input type="number" value={maxAge} onChange={(e) => setMaxAge(Number(e.target.value))} style={{ ...inputStyle, width: 70 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Noha</label>
+              <select value={foot} onChange={(e) => setFoot(e.target.value)} style={inputStyle}>
+                {FOOT_OPTIONS.map((c) => (<option key={c} value={c}>{c}</option>))}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Stav</label>
+              <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
+                {STATUS_OPTIONS.map((c) => (<option key={c} value={c}>{c}</option>))}
+              </select>
             </div>
             <div>
               <label style={labelStyle}>Max. rozpočet (M €)</label>
@@ -143,13 +197,19 @@ export default function PlayerSearch() {
               <label style={labelStyle}>Filozofie klubu</label>
               <StyleSwitch active={style} onChange={setStyle} />
             </div>
+            <div>
+              <label style={labelStyle}>Řadit podle</label>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={inputStyle}>
+                {SORT_OPTIONS.map((o) => (<option key={o.id} value={o.id}>{o.label}</option>))}
+              </select>
+            </div>
           </div>
         </div>
 
         <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 10 }}>
           {loading
             ? "Načítám…"
-            : `${results.length} ${results.length === 1 ? "hráč odpovídá" : "hráčů odpovídá"} filtru, seřazeno podle skóre pro zvolenou filozofii`}
+            : `${visible.length} ${visible.length === 1 ? "hráč odpovídá" : "hráčů odpovídá"} filtru${sortBy === "score" ? ", seřazeno podle skóre pro zvolenou filozofii (nehodnocení na konci)" : ""}`}
         </div>
 
         {error && (
@@ -166,7 +226,7 @@ export default function PlayerSearch() {
 
         {/* ---------- Results ---------- */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {results.map((p, i) => {
+          {visible.map((p, i) => {
             const score = p.scores[style];
             const isExpanded = expanded === p.id;
             return (
@@ -233,9 +293,9 @@ export default function PlayerSearch() {
               </div>
             );
           })}
-          {results.length === 0 && (
+          {visible.length === 0 && !loading && (
             <div style={{ textAlign: "center", padding: "40px 0", color: C.inkFaint, fontSize: 13 }}>
-              Žádný hráč neodpovídá zadaným filtrům. Zkus zvýšit rozpočet nebo věkový limit.
+              Žádný hráč neodpovídá zadaným filtrům. Zkus upravit hledání, věk nebo rozpočet — nebo hráče přidej tlačítkem „+ Přidat hráče“.
             </div>
           )}
         </div>
