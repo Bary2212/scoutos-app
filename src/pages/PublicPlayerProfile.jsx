@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Shield, AlertTriangle, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { apiFetch } from "../api.js";
+import { ratingFromPercentile, ratingLabel } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
 
 // Veřejná, read-only verze profilu hráče — otevírá se z odkazu, který scout
@@ -75,7 +76,7 @@ function MetricBar({ label, percentile }) {
       <div style={{ flex: 1, height: 6, background: C.lineSoft, borderRadius: 3 }}>
         <div style={{ width: `${percentile}%`, height: "100%", borderRadius: 3, background: C.turf }} />
       </div>
-      <span style={{ width: 28, textAlign: "right", fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{percentile}.</span>
+      <span style={{ width: 40, textAlign: "right", fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{ratingFromPercentile(percentile)}/10</span>
     </div>
   );
 }

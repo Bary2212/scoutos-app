@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { Scale, ArrowLeft, AlertTriangle, ArrowUpRight, ArrowDownRight, Loader2 } from "lucide-react";
 import { apiFetch } from "../api.js";
+import { ratingFromPercentile, ratingLabel } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
 
 // Porovnání 2–3 hráčů vedle sebe — otevírá se ze Shortlisty (vyber hráče
@@ -120,7 +121,7 @@ function MetricRow({ label, values }) {
             </div>
             <span
               style={{
-                width: 26,
+                width: 36,
                 textAlign: "right",
                 fontFamily: fontMono,
                 fontSize: 11.5,
@@ -128,7 +129,7 @@ function MetricRow({ label, values }) {
                 color: isBest ? C.turf : C.inkFaint,
               }}
             >
-              {has ? v : "—"}
+              {has ? ratingFromPercentile(v) : "—"}
             </span>
           </div>
         );

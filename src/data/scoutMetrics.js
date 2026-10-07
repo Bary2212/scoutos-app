@@ -4,18 +4,21 @@
 // i pro vykreslení stejných dat na profilu hráče (PlayerProfile).
 
 // ---- Rozklad skóre po metrikách (breakdown) -------------------------
-// Každá metrika: 0–100 percentil, jak scout hráče v dané dovednosti vidí
+// Každá metrika: hodnocení 1–10, jak skaut hráče v dané dovednosti vidí
 // ve srovnání s hráči na stejné pozici a úrovni soutěže.
 
 export const METRIC_GROUPS = [
   {
-    id: "technika",
-    label: "Technika s míčem",
+    id: "s_micem",
+    label: "Hra s míčem",
+    outfieldOnly: true,
     metrics: [
       { id: "prvni_dotek", label: "První dotek / zpracování míče" },
       { id: "driblink", label: "Driblink v souboji 1v1" },
       { id: "kratke_prihravky", label: "Přesnost krátkých přihrávek" },
       { id: "dlouhe_prihravky", label: "Přesnost dlouhých přihrávek" },
+      { id: "rozehravka", label: "Kvalita rozehrávky do útoku" },
+      { id: "kreativita", label: "Kreativita v posledních 30 m" },
       { id: "strelba_silnejsi", label: "Střelba silnější nohou" },
       { id: "strelba_slabsi", label: "Střelba slabší nohou" },
       { id: "centry", label: "Centry a standardní situace" },
@@ -23,16 +26,44 @@ export const METRIC_GROUPS = [
     ],
   },
   {
-    id: "taktika",
-    label: "Herní inteligence a taktika",
+    id: "bez_mice",
+    label: "Hra bez míče (útok)",
+    outfieldOnly: true,
     metrics: [
       { id: "pohyb_bez_mice", label: "Pohyb bez míče / uvolňování se" },
       { id: "cteni_hry", label: "Čtení hry a předvídání" },
-      { id: "rozehravka", label: "Kvalita rozehrávky do útoku" },
-      { id: "tranzice", label: "Přechody obrana/útok (tranzice)" },
+    ],
+  },
+  {
+    id: "obrana",
+    label: "Bránění",
+    outfieldOnly: true,
+    metrics: [
+      { id: "souboje_1v1_obr", label: "Obranné souboje 1v1" },
+      { id: "timing_skluzu", label: "Timing skluzu / odebrání míče" },
+      { id: "kryti_prostoru", label: "Krytí prostoru / zónová obrana" },
+      { id: "hra_na_balon", label: "Hra na balón vs. hra na hráče" },
       { id: "pressing", label: "Intenzita a načasování pressingu" },
       { id: "postaveni", label: "Postavení / positioning" },
-      { id: "kreativita", label: "Kreativita v posledních 30 m" },
+    ],
+  },
+  {
+    id: "prechody",
+    label: "Přechodové fáze",
+    outfieldOnly: true,
+    metrics: [{ id: "tranzice", label: "Přechody obrana/útok (tranzice)" }],
+  },
+  {
+    id: "brankar",
+    label: "Brankářské dovednosti",
+    goalkeeperOnly: true,
+    metrics: [
+      { id: "reflexy", label: "Reflexy a zákroky" },
+      { id: "postaveni_v_brance", label: "Postavení v brance" },
+      { id: "vybirani_centru", label: "Jistota při vybírání centrů" },
+      { id: "sweeping", label: "Hra mimo bránu (sweeping)" },
+      { id: "rozehravka_noha", label: "Rozehrávka nohou" },
+      { id: "rozehravka_ruka", label: "Rozehrávka rukou / výhozy" },
     ],
   },
   {
@@ -48,30 +79,6 @@ export const METRIC_GROUPS = [
     ],
   },
   {
-    id: "obrana",
-    label: "Obranné dovednosti",
-    outfieldOnly: true,
-    metrics: [
-      { id: "souboje_1v1_obr", label: "Obranné souboje 1v1" },
-      { id: "timing_skluzu", label: "Timing skluzu / odebrání míče" },
-      { id: "kryti_prostoru", label: "Krytí prostoru / zónová obrana" },
-      { id: "hra_na_balon", label: "Hra na balón vs. hra na hráče" },
-    ],
-  },
-  {
-    id: "brankar",
-    label: "Brankářské dovednosti",
-    goalkeeperOnly: true,
-    metrics: [
-      { id: "reflexy", label: "Reflexy a zákroky" },
-      { id: "rozehravka_noha", label: "Rozehrávka nohou" },
-      { id: "rozehravka_ruka", label: "Rozehrávka rukou / výhozy" },
-      { id: "sweeping", label: "Hra mimo bránu (sweeping)" },
-      { id: "vybirani_centru", label: "Jistota při vybírání centrů" },
-      { id: "postaveni_v_brance", label: "Postavení v brance" },
-    ],
-  },
-  {
     id: "mentalita",
     label: "Mentalita v zápase",
     metrics: [
@@ -82,6 +89,35 @@ export const METRIC_GROUPS = [
     ],
   },
 ];
+
+// ---- Škála 1–10 s popisky --------------------------------------------
+// Uvnitř se dál ukládá pole `percentile` (0–100), aby fungovalo skóre,
+// porovnání i PDF; skaut ale vidí a zadává jen 1–10.
+export const RATING_LABELS = {
+  1: "Velmi slabé",
+  2: "Slabé",
+  3: "Pod průměrem",
+  4: "Lehce pod průměrem",
+  5: "Průměr",
+  6: "Lehce nad průměrem",
+  7: "Dobré",
+  8: "Velmi dobré",
+  9: "Výborné",
+  10: "Elitní",
+};
+
+export function ratingFromPercentile(p) {
+  const n = Math.round(Number(p) / 10);
+  return Math.max(1, Math.min(10, Number.isFinite(n) ? n : 5));
+}
+
+export function percentileFromRating(r) {
+  return Math.max(0, Math.min(100, Number(r) * 10 - 5));
+}
+
+export function ratingLabel(percentile) {
+  return RATING_LABELS[ratingFromPercentile(percentile)];
+}
 
 // Skupiny relevantní pro danou pozici (brankář vs. hráč do pole).
 export function groupsForPosition(position) {

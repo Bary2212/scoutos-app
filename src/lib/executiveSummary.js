@@ -10,6 +10,7 @@
 // takže by mu čeština s háčky a čárkami (č, ř, ě, š, ž, ů…) vypadla. Proto
 // se sem vloží font Roboto (podporuje i českou diakritiku) jako vlastní
 // font přes VFS.
+import { ratingFromPercentile } from "../data/scoutMetrics.js";
 import robotoRegularUrl from "../assets/fonts/Roboto-Regular.ttf?url";
 import robotoMediumUrl from "../assets/fonts/Roboto-Medium.ttf?url";
 
@@ -112,8 +113,8 @@ export async function downloadExecutiveSummary({
     doc.setTextColor(...INK_SOFT);
     doc.setFontSize(10);
     const explanation = [];
-    if (topPositive) explanation.push(`Nejsilnější stránkou je ${topPositive.label.toLowerCase()} (${topPositive.percentile}. percentil).`);
-    if (topNegative) explanation.push(`Naopak nejvíc táhne skóre dolů ${topNegative.label.toLowerCase()} (${topNegative.percentile}. percentil).`);
+    if (topPositive) explanation.push(`Nejsilnější stránkou je ${topPositive.label.toLowerCase()} (${ratingFromPercentile(topPositive.percentile)}/10).`);
+    if (topNegative) explanation.push(`Naopak nejvíc táhne skóre dolů ${topNegative.label.toLowerCase()} (${ratingFromPercentile(topNegative.percentile)}/10).`);
     const lines = doc.splitTextToSize(explanation.join(" "), CONTENT_W - 32);
     doc.text(lines, MARGIN + 30, y + 6);
     y += 28;
@@ -182,7 +183,7 @@ export async function downloadExecutiveSummary({
       doc.setFillColor(...TURF);
       doc.rect(barX, y, (barW * Math.max(0, Math.min(100, stat.percentile))) / 100, 3, "F");
       doc.setTextColor(...INK_FAINT);
-      doc.text(`${stat.percentile}.`, barX + barW + 3, y + 3);
+      doc.text(`${ratingFromPercentile(stat.percentile)}/10`, barX + barW + 3, y + 3);
       y += 7;
     });
     y += 3;

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Loader2, Plus, X } from "lucide-react";
 import { apiFetch } from "../api.js";
-import { groupsForPosition, TECHNICAL_FIELDS, PHYSICAL_FIELDS, MENTAL_FIELDS } from "../data/scoutMetrics.js";
+import { groupsForPosition, RATING_LABELS, ratingFromPercentile, percentileFromRating, TECHNICAL_FIELDS, PHYSICAL_FIELDS, MENTAL_FIELDS } from "../data/scoutMetrics.js";
 
 const C = {
   bg: "#F5F6F1",
@@ -34,7 +34,7 @@ function initialRatings(breakdown, groups) {
   const ratings = {};
   for (const stat of breakdown || []) {
     if (known.has(stat.id)) {
-      ratings[stat.id] = { checked: true, value: stat.percentile };
+      ratings[stat.id] = { checked: true, value: ratingFromPercentile(stat.percentile) };
     }
   }
   return ratings;
@@ -44,7 +44,7 @@ function initialCustom(breakdown, groups) {
   const known = new Set(groups.flatMap((g) => g.metrics.map((m) => m.id)));
   return (breakdown || [])
     .filter((stat) => !known.has(stat.id) && stat.id?.startsWith("custom-"))
-    .map((stat) => ({ id: stat.id, label: stat.label, value: stat.percentile }));
+    .map((stat) => ({ id: stat.id, label: stat.label, value: ratingFromPercentile(stat.percentile) }));
 }
 
 export default function PlayerStatsForm() {
@@ -116,7 +116,7 @@ export default function PlayerStatsForm() {
       if (current?.checked) {
         return { ...r, [metricId]: { ...current, checked: false } };
       }
-      return { ...r, [metricId]: { checked: true, value: current?.value ?? 50 } };
+      return { ...r, [metricId]: { checked: true, value: current?.value ?? 5 } };
     });
   };
 
@@ -133,7 +133,7 @@ export default function PlayerStatsForm() {
       .replace(/[̀-ͯ]/g, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
-    setCustomMetrics((list) => [...list, { id: `custom-${slug}-${Date.now()}`, label, value: 50 }]);
+    setCustomMetrics((list) => [...list, { id: `custom-${slug}-${Date.now()}`, label, value: 5 }]);
     setNewCustomLabel("");
   };
 
@@ -165,7 +165,7 @@ export default function PlayerStatsForm() {
           .map((m) => ({
             id: m.id,
             label: m.label,
-            percentile: ratings[m.id].value,
+            percentile: percentileFromRating(ratings[m.id].value),
             tag: g.id,
             detail: `Ruční hodnocení skauta (kategorie: ${g.label}).`,
           }))
@@ -173,7 +173,7 @@ export default function PlayerStatsForm() {
       ...customMetrics.map((m) => ({
         id: m.id,
         label: m.label,
-        percentile: m.value,
+        percentile: percentileFromRating(m.value),
         tag: "custom",
         detail: "Vlastní metrika zadaná skautem.",
       })),
@@ -232,29 +232,18 @@ export default function PlayerStatsForm() {
           {groups.map((group) => (
             <section key={group.id} style={sectionStyle}>
               <h2 style={sectionTitleStyle}>{group.label}</h2>
-              <p style={sectionHintStyle}>Zaškrtni metriky, které jsi u hráče stihl posoudit, a nastav odhadovaný percentil (0–100) v porovnání s hráči na stejné pozici.</p>
+              <p style={sectionHintStyle}>Zaškrtni metriky, které jsi u hráče stihl posoudit, a ohodnoť je na škále 1–10 (5 = průměr hráčů na stejné pozici a úrovni).</p>
               {group.metrics.map((metric) => {
                 const state = ratings[metric.id];
                 const checked = !!state?.checked;
-                const value = state?.value ?? 50;
+                const value = state?.value ?? 5;
                 return (
                   <div key={metric.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: `1px solid ${C.lineSoft}` }}>
                     <label style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, cursor: "pointer", fontSize: 13.5 }}>
                       <input type="checkbox" checked={checked} onChange={() => toggleMetric(metric.id)} />
                       {metric.label}
                     </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={value}
-                      disabled={!checked}
-                      onChange={(e) => setMetricValue(metric.id, e.target.value)}
-                      style={{ width: 140, opacity: checked ? 1 : 0.35 }}
-                    />
-                    <span style={{ width: 34, textAlign: "right", fontFamily: fontMono, fontSize: 13, color: checked ? C.ink : C.inkFaint, fontWeight: 600 }}>
-                      {checked ? value : "—"}
-                    </span>
+                    <RatingControl value={value} disabled={!checked} onChange={(v) => setMetricValue(metric.id, v)} />
                   </div>
                 );
               })}
@@ -267,8 +256,7 @@ export default function PlayerStatsForm() {
             {customMetrics.map((m) => (
               <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: `1px solid ${C.lineSoft}` }}>
                 <span style={{ flex: 1, fontSize: 13.5 }}>{m.label}</span>
-                <input type="range" min={0} max={100} value={m.value} onChange={(e) => updateCustomValue(m.id, e.target.value)} style={{ width: 140 }} />
-                <span style={{ width: 34, textAlign: "right", fontFamily: fontMono, fontSize: 13, fontWeight: 600 }}>{m.value}</span>
+                <RatingControl value={m.value} onChange={(v) => updateCustomValue(m.id, v)} />
                 <button type="button" onClick={() => removeCustomMetric(m.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.inkFaint, padding: 4 }}>
                   <X size={14} />
                 </button>
@@ -386,6 +374,34 @@ export default function PlayerStatsForm() {
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+function RatingControl({ value, onChange, disabled }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, opacity: disabled ? 0.35 : 1 }}>
+      <div style={{ display: "flex", gap: 3 }}>
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+          <button
+            key={n}
+            type="button"
+            disabled={disabled}
+            title={RATING_LABELS[n]}
+            onClick={() => onChange(n)}
+            style={{
+              width: 24, height: 24, borderRadius: 4, fontSize: 11, fontFamily: fontMono, fontWeight: 600,
+              border: `1px solid ${n === value ? C.turf : C.line}`,
+              background: n === value ? C.turf : C.panel,
+              color: n === value ? "#fff" : C.inkSoft,
+              cursor: disabled ? "default" : "pointer", padding: 0,
+            }}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <span style={{ fontSize: 11, color: C.inkFaint, minHeight: 14 }}>{disabled ? "" : RATING_LABELS[value]}</span>
     </div>
   );
 }

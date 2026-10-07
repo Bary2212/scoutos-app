@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
+import { ratingFromPercentile, ratingLabel } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
 import { useAuth } from "../AuthContext.jsx";
 
@@ -372,7 +373,7 @@ function StatRow({ stat, contribution, expanded, onToggle, clipsCount, onShowCli
         <div style={{ flex: 1, height: 6, background: C.lineSoft, borderRadius: 3, position: "relative" }}>
           <div style={{ width: `${stat.percentile}%`, height: "100%", borderRadius: 3, background: C.turf }} />
         </div>
-        <span style={{ width: 34, textAlign: "right", fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{stat.percentile}.</span>
+        <span style={{ width: 44, textAlign: "right", fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{ratingFromPercentile(stat.percentile)}/10</span>
         <span style={{ width: 48, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, fontFamily: fontMono, fontSize: 13, fontWeight: 600, color: positive ? C.turf : C.red }}>
           {positive ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
           {Math.abs(contribution)}
@@ -778,7 +779,7 @@ function CompareTable({ base, baseScore, others, breakdown }) {
       ))}
 
       <div style={{ padding: "9px 12px", fontSize: 11, fontWeight: 700, color: C.inkFaint, background: C.lineSoft, borderTop: `1px solid ${C.line}` }}>
-        HERNÍ METRIKY — PERCENTIL V RÁMCI POZICE A VĚKU
+        HERNÍ METRIKY — HODNOCENÍ V RÁMCI POZICE A VĚKU
       </div>
 
       {breakdown.map((stat) => {
@@ -1142,6 +1143,7 @@ export default function PlayerProfile() {
       height: player.height || "",
     });
     setEditing(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const saveEdit = (e) => {
@@ -1262,6 +1264,7 @@ export default function PlayerProfile() {
                 <span style={{ fontSize: 13, color: C.inkSoft }}>{player.position}</span>
                 <Divider />
                 <span style={{ fontSize: 13, color: C.inkSoft }}>{player.age} let</span>
+                {hasAnalytics && (
                 <button
                   onClick={() => injuryRisk && setRiskExpanded((v) => !v)}
                   style={{
@@ -1284,6 +1287,7 @@ export default function PlayerProfile() {
                     <ChevronDown size={11} style={{ transform: riskExpanded ? "rotate(180deg)" : "none", transition: "transform 150ms" }} />
                   )}
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -1357,7 +1361,8 @@ export default function PlayerProfile() {
 
         {riskExpanded && injuryRisk && <InjuryRiskPanel data={injuryRisk} />}
 
-        {/* ---------- Základní údaje (editovatelné) ---------- */}
+        {/* ---------- Základní údaje (formulář se ukáže jen při úpravě; jinak je vše v "Rychlé info") ---------- */}
+        {editing && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "18px 24px", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: editing ? 14 : 0 }}>
             <SectionLabel>Základní údaje</SectionLabel>
@@ -1402,12 +1407,6 @@ export default function PlayerProfile() {
             </form>
           ) : null}
         </div>
-
-        {/* ---------- Contract bar ---------- */}
-        {player.contractUntil && (
-          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "14px 24px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16 }}>
-            <span style={{ fontSize: 12, color: C.inkSoft, flexShrink: 0 }}>Kontrakt do {player.contractUntil}</span>
-          </div>
         )}
 
         {/* ---------- Tabs ---------- */}
@@ -1431,9 +1430,15 @@ export default function PlayerProfile() {
                 {!hasAnalytics && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, background: C.lineSoft, borderRadius: 6, padding: "10px 14px", marginBottom: physicalData || technicalMetrics || mentalProfile || strengths.length > 0 ? 20 : 0 }}>
                     <ShieldAlert size={14} color={C.inkFaint} />
-                    <span style={{ fontSize: 12, color: C.inkSoft }}>
-                      Pro tohoto hráče zatím nejsou k dispozici žádná AI analytická data (skóre, video, riziko zranění). Sem se doplní automaticky, jakmile budou nasbírána.
+                    <span style={{ fontSize: 12, color: C.inkSoft, flex: 1 }}>
+                      Zatím tu nejsou žádné statistiky. Zadej hodnocení hráče a zobrazí se tu skóre, rozklad po metrikách a silné i slabé stránky.
                     </span>
+                    <button
+                      onClick={() => navigate(`/hrac/${id}/statistiky`)}
+                      style={{ flexShrink: 0, padding: "6px 12px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Zadat statistiky
+                    </button>
                   </div>
                 )}
 
@@ -1463,8 +1468,14 @@ export default function PlayerProfile() {
                             </>
                           ) : (
                             <>
-                              Skóre táhne nahoru hlavně <strong style={{ color: C.ink }}>{topPositive.label.toLowerCase()}</strong> ({topPositive.percentile}. percentil),
-                              dolů ho stahuje <strong style={{ color: C.ink }}>{topNegative.label.toLowerCase()}</strong> ({topNegative.percentile}. percentil).
+                              Skóre vychází z průměru hodnocení zadaných metrik (škála 1–10, 5 = průměr hráčů na stejné pozici).
+                              {topPositive.percentile > 50 && (
+                                <> Nahoru ho táhne hlavně <strong style={{ color: C.ink }}>{topPositive.label.toLowerCase()}</strong> ({ratingFromPercentile(topPositive.percentile)}/10 – {ratingLabel(topPositive.percentile).toLowerCase()})</>
+                              )}
+                              {topNegative && topNegative.id !== topPositive.id && topNegative.percentile < 50 && (
+                                <>{topPositive.percentile > 50 ? ", dolů" : " Dolů"} ho stahuje <strong style={{ color: C.ink }}>{topNegative.label.toLowerCase()}</strong> ({ratingFromPercentile(topNegative.percentile)}/10 – {ratingLabel(topNegative.percentile).toLowerCase()})</>
+                              )}
+                              {(topPositive.percentile > 50 || (topNegative && topNegative.percentile < 50)) && "."}
                             </>
                           )}
                         </p>
@@ -1489,6 +1500,9 @@ export default function PlayerProfile() {
                     )}
 
                     <SectionLabel>Rozklad skóre po metrikách</SectionLabel>
+                    <p style={{ fontSize: 12, color: C.inkFaint, margin: "0 0 6px", lineHeight: 1.5 }}>
+                      Číslo u pruhu je hodnocení 1–10 (5 = průměr, 10 = elita). Šipka vpravo ukazuje, jak moc je metrika nad průměrem (nahoru) nebo pod ním (dolů).
+                    </p>
                     <div>
                       {breakdown.map((stat) => (
                         <StatRow
@@ -1593,7 +1607,7 @@ export default function PlayerProfile() {
                   </div>
                 )}
 
-                {user?.role === "hlavni_skaut" && (
+                {user?.role === "hlavni_skaut" && (teamEvalLoading || teamEvaluations.some((ev) => !ev.isMe)) && (
                   <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
                     <SectionLabel>Hodnocení skautů klubu</SectionLabel>
                     {teamEvalLoading && <p style={{ fontSize: 13, color: C.inkFaint, margin: "8px 0 0" }}>Načítám…</p>}
@@ -2072,12 +2086,20 @@ export default function PlayerProfile() {
           {/* ---------- Sidebar ---------- */}
           <div style={{ gridColumn: "span 12" }} className="md:col-span-4">
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
-              <SectionLabel>Rychlé info</SectionLabel>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <SectionLabel>Rychlé info</SectionLabel>
+                {!editing && player.canEditIdentity !== false && (
+                  <button onClick={startEditing} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                    <Pencil size={13} /> Upravit
+                  </button>
+                )}
+              </div>
               {[
                 ["Tržní hodnota", player.marketValue ? `${Number(player.marketValue).toFixed(1)}M €` : "—"],
+                ["Kontrakt do", player.contractUntil || "—"],
                 ["Agent", player.agent || "—"],
                 ["Preferovaná noha", player.foot || "—"],
-                ["Výška", player.height || "—"],
+                ["Výška", player.height ? (/^\d+$/.test(String(player.height).trim()) ? `${String(player.height).trim()} cm` : player.height) : "—"],
               ].map(([label, value]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
                   <span style={{ color: C.inkFaint }}>{label}</span>
@@ -2141,32 +2163,11 @@ export default function PlayerProfile() {
                 <ActionButton icon={shareCopied ? Check : Share2} onClick={shareProfile}>
                   {shareCopied ? "Odkaz zkopírován" : "Sdílet profil (bez přihlášení)"}
                 </ActionButton>
-                <div style={{ marginTop: 4 }}>
-                  <label style={{ fontSize: 12, color: C.inkFaint, display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <UserPlus size={13} /> Přiřadit skauta
-                  </label>
-                  <select
-                    value={scout}
-                    onChange={(e) => setScout(e.target.value)}
-                    style={{ width: "100%", padding: "9px 10px", fontFamily: fontBody, fontSize: 13, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, background: "#fff" }}
-                  >
-                    <option value="">Vyber skauta…</option>
-                    <option value="petr">Petr Novák</option>
-                    <option value="jana">Jana Bartošová</option>
-                    <option value="karel">Karel Ryba</option>
-                  </select>
-                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 24 }}>
-          <Info size={13} color={C.inkFaint} />
-          <span style={{ fontSize: 12, color: C.inkFaint }}>
-            Klikací wireframe — zkus přepnout filozofii klubu u skóre nebo otevřít detail statistiky a skočit na klipy.
-          </span>
-        </div>
       </div>
     </div>
   );
