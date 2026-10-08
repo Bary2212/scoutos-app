@@ -23,9 +23,14 @@ const NAV = [
   { to: "/shortlist", label: "Shortlist" },
   { to: "/radar", label: "Radar hodnoty" },
   { to: "/pridat-hrace", label: "+ Přidat hráče" },
+  { to: "/klub", label: "Klub" },
+];
+
+// Ukázkové položky vidí jen demo tým a majitel appky — ostatní uživatelé
+// (skuteční klienti) je v menu nemají.
+const DEMO_NAV = [
   { to: "/hrac/1", label: "Player Profile (demo)" },
   { to: "/tagovani", label: "Live Tagging" },
-  { to: "/klub", label: "Klub" },
 ];
 
 // Chrání trasu — bez přihlášení pošle na /prihlaseni a pamatuje si, kam se
@@ -43,7 +48,13 @@ function TopNav() {
   const location = useLocation();
   const { user, logout } = useAuth();
   // Odkaz "Admin" vidí jen majitel appky (backend nastaví user.isAdmin podle ADMIN_EMAIL).
-  const navItems = user?.isAdmin ? [...NAV, { to: "/admin", label: "Admin" }] : NAV;
+  const showDemo = user?.isDemoTeam || user?.isAdmin;
+  const navItems = [
+    ...NAV.slice(0, -1),
+    ...(showDemo ? DEMO_NAV : []),
+    ...NAV.slice(-1),
+    ...(user?.isAdmin ? [{ to: "/admin", label: "Admin" }] : []),
+  ];
 
   return (
     <div

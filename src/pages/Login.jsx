@@ -157,9 +157,6 @@ export default function Login() {
             <button type="button" onClick={() => { setMode("register"); resetMessages(); }} style={linkButtonStyle}>
               Nemáš účet? Vytvoř si ho
             </button>
-            <p style={{ fontSize: 11, color: C.inkFaint, marginTop: 16, lineHeight: 1.5, textAlign: "center" }}>
-              Ukázkový účet: petr@scoutos.cz / heslo123
-            </p>
           </form>
         )}
 
