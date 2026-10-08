@@ -883,7 +883,10 @@ app.get("/api/players", async (req, res) => {
     const { rows: evals } = await pool.query("SELECT * FROM player_evaluations WHERE user_id = $1", [req.user.id]);
     const evalByPlayerId = Object.fromEntries(evals.map((e) => [e.player_id, e]));
 
+    // Ukázkoví hráči (seed pro demo) patří jen demo týmu. Skuteční uživatelé je nevidí,
+    // pokud si je sami neohodnotili (pak jdou odebrat tlačítkem „Odebrat hráče“).
     const results = players
+      .filter((p) => !p.is_shared_demo || req.user.isDemoTeam || evalByPlayerId[p.id])
       .map((p) => playerRowToApi(p, evalByPlayerId[p.id], req.user))
       .filter((p) => (category === "Vše" ? true : categoryOf(p.position) === category))
       .filter((p) => (p.age ?? 0) <= Number(maxAge))
@@ -903,8 +906,8 @@ app.get("/api/players/search", async (req, res) => {
     const name = (req.query.name || "").trim();
     if (!name) return res.json([]);
     const { rows } = await pool.query(
-      "SELECT id, name, position, age, birth_year, club FROM players WHERE name ILIKE $1 ORDER BY name LIMIT 6",
-      [`%${name}%`]
+      "SELECT id, name, position, age, birth_year, club FROM players WHERE name ILIKE $1 AND (is_shared_demo = false OR $2::boolean) ORDER BY name LIMIT 6",
+      [`%${name}%`, !!req.user.isDemoTeam]
     );
     res.json(rows.map((r) => ({ id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club })));
   } catch (err) {
@@ -950,6 +953,7 @@ app.post("/api/players/:id/evaluate", async (req, res) => {
 
     const existing = await getMyEvaluation(playerId, req.user.id);
     if (existing) return res.json(playerRowToApi(player, existing, req.user));
+    if (player.is_shared_demo && !req.user.isDemoTeam) return res.status(404).json({ error: "Hráč nenalezen." });
 
     const { rows: evalRows } = await pool.query(
       `INSERT INTO player_evaluations (player_id, user_id, scores, reason) VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -1221,6 +1225,7 @@ app.get("/api/players/:id", async (req, res) => {
     const player = rows[0];
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
     const evaluation = await getMyEvaluation(player.id, req.user.id);
+    if (player.is_shared_demo && !req.user.isDemoTeam && !evaluation) return res.status(404).json({ error: "Hráč nenalezen." });
     res.json(playerRowToApi(player, evaluation, req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst hráče.", detail: err.message });
