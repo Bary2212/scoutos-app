@@ -398,6 +398,80 @@ function StatRow({ stat, contribution, expanded, onToggle, clipsCount, onShowCli
   );
 }
 
+// Hodnocení kolegy z klubu (vidí hlavní skaut): jedno skóre, tržní odhad a po rozkliknutí
+// jeho metriky po kategoriích — stejně, jak je vidí on sám na svém profilu.
+function TeamEvaluationCard({ ev }) {
+  const [open, setOpen] = useState(false);
+  const values = STYLES.map((st) => ev.scores?.[st.id]).filter((v) => v !== undefined && v !== null);
+  const sameScore = values.length > 0 && values.every((v) => v === values[0]);
+  const groups = (() => {
+    const order = [...METRIC_GROUPS.map((g) => g.id), "vlastni", "ostatni"];
+    const map = new Map();
+    for (const m of ev.breakdown || []) {
+      const g = groupForMetric(m.id);
+      if (!map.has(g.id)) map.set(g.id, { id: g.id, label: g.label, stats: [] });
+      map.get(g.id).stats.push(m);
+    }
+    return [...map.values()].sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
+  })();
+  const hasMetrics = groups.length > 0;
+
+  return (
+    <div style={{ border: `1px solid ${C.lineSoft}`, borderRadius: 6, padding: "12px 14px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{ev.scoutName}</span>
+        {Number(ev.marketValue) > 0 && (
+          <span style={{ fontSize: 11, color: C.inkFaint }}>tržní odhad {Number(ev.marketValue).toFixed(1)}M €</span>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+        {sameScore ? (
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: C.inkFaint }}>Skóre: </span>
+            <span style={{ fontFamily: fontMono, fontWeight: 700, color: C.turf, fontSize: 15 }}>{values[0]}</span>
+          </div>
+        ) : (
+          STYLES.map((st) => (
+            <div key={st.id} style={{ fontSize: 12 }}>
+              <span style={{ color: C.inkFaint }}>{st.label}: </span>
+              <span style={{ fontFamily: fontMono, fontWeight: 700, color: C.turf }}>{ev.scores?.[st.id]}</span>
+            </div>
+          ))
+        )}
+        {hasMetrics && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            style={{ marginLeft: "auto", background: "none", border: "none", color: C.turf, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}
+          >
+            {open ? "Skrýt dovednosti" : `Zobrazit dovednosti (${ev.breakdown.length})`}
+          </button>
+        )}
+      </div>
+      {open && hasMetrics && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px 24px", marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.lineSoft}` }}>
+          {groups.map((g) => {
+            const avg = g.stats.reduce((sum, m) => sum + ratingFromPercentile(m.percentile), 0) / g.stats.length;
+            return (
+              <div key={g.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", borderBottom: `1px solid ${C.ink}`, paddingBottom: 3, marginBottom: 3 }}>
+                  <span>{g.label}</span>
+                  <span style={{ fontFamily: fontMono, color: C.turf }}>{avg.toFixed(1)}/10</span>
+                </div>
+                {g.stats.map((m) => (
+                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", color: C.inkSoft }}>
+                    <span>{m.label}</span>
+                    <span style={{ fontFamily: fontMono }}>{ratingFromPercentile(m.percentile)}/10</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SectionLabel({ children }) {
   return <div style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 12 }}>{children}</div>;
 }
@@ -1644,20 +1718,7 @@ export default function PlayerProfile() {
                     {!teamEvalLoading && teamEvaluations.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
                         {teamEvaluations.map((ev) => (
-                          <div key={ev.userId} style={{ border: `1px solid ${C.lineSoft}`, borderRadius: 6, padding: "12px 14px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700 }}>{ev.scoutName}</span>
-                              <span style={{ fontSize: 11, color: C.inkFaint }}>tržní odhad {Number(ev.marketValue).toFixed(1)}M €</span>
-                            </div>
-                            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                              {STYLES.map((s) => (
-                                <div key={s.id} style={{ fontSize: 12 }}>
-                                  <span style={{ color: C.inkFaint }}>{s.label}: </span>
-                                  <span style={{ fontFamily: fontMono, fontWeight: 700, color: C.turf }}>{ev.scores?.[s.id]}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          <TeamEvaluationCard key={ev.userId} ev={ev} />
                         ))}
                       </div>
                     )}

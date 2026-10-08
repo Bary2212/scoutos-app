@@ -1,10 +1,30 @@
-import React, { createContext, useContext, useState } from "react";
-import { API_BASE, getStoredUser, setSession, clearSession } from "./api.js";
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { API_BASE, getStoredUser, getToken, setSession, clearSession, apiFetch } from "./api.js";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(getStoredUser());
+
+  // Po načtení appky si obnovíme roli a klub ze serveru — mohly se změnit (povýšení,
+  // odebrání z klubu), zatímco byl uživatel přihlášený. Neplatný účet odhlásí.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    apiFetch("/api/auth/me")
+      .then(async (res) => {
+        if (res.status === 401) {
+          clearSession();
+          setUser(null);
+          return;
+        }
+        if (!res.ok) return;
+        const fresh = await res.json();
+        setSession(token, fresh);
+        setUser(fresh);
+      })
+      .catch(() => {});
+  }, []);
 
   const login = async (email, password) => {
     const res = await fetch(`${API_BASE}/api/auth/login`, {

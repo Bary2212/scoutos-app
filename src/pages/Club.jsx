@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Users, Copy, RefreshCw, UserMinus, Check } from "lucide-react";
+import { Users, Copy, RefreshCw, UserMinus, Check, Pencil, ShieldCheck, ShieldOff } from "lucide-react";
 import { apiFetch } from "../api.js";
+import { useAuth } from "../AuthContext.jsx";
 
 const C = {
   bg: "#F5F6F1",
@@ -23,12 +24,18 @@ const fontBody = "'Inter', sans-serif";
 const fontMono = "'IBM Plex Mono', monospace";
 
 export default function Club() {
+  const { user: authUser } = useAuth();
+  const currentUserId = authUser?.id;
   const [club, setClub] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [removingId, setRemovingId] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [roleBusyId, setRoleBusyId] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -78,6 +85,49 @@ export default function Club() {
       .finally(() => setRemovingId(null));
   };
 
+  const saveName = () => {
+    const name = nameDraft.trim();
+    if (!name) return;
+    setSavingName(true);
+    setError(null);
+    apiFetch("/api/club", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("fail");
+        return res.json();
+      })
+      .then((data) => {
+        setClub((c) => ({ ...c, name: data.name }));
+        setRenaming(false);
+      })
+      .catch(() => setError("Nepodařilo se přejmenovat klub."))
+      .finally(() => setSavingName(false));
+  };
+
+  const changeRole = (scoutId, name, role) => {
+    const text =
+      role === "hlavni_skaut"
+        ? `Povýšit ${name} na hlavního skauta? Uvidí hodnocení všech skautů klubu a bude moct spravovat klub.`
+        : `Změnit ${name} na běžného skauta? Přestane vidět hodnocení ostatních a spravovat klub.`;
+    if (!window.confirm(text)) return;
+    setRoleBusyId(scoutId);
+    setError(null);
+    apiFetch(`/api/club/scouts/${scoutId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "fail");
+        return load();
+      })
+      .catch((e) => setError(e.message && e.message !== "fail" ? e.message : "Nepodařilo se změnit roli."))
+      .finally(() => setRoleBusyId(null));
+  };
+
   const isHead = club?.myRole === "hlavni_skaut";
 
   return (
@@ -97,7 +147,40 @@ export default function Club() {
           <>
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 20 }}>
               <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 4 }}>Název klubu</div>
-              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontDisplay, marginBottom: 12 }}>{club.name}</div>
+              {renaming ? (
+                <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    maxLength={100}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveName();
+                      if (e.key === "Escape") setRenaming(false);
+                    }}
+                    style={{ flex: 1, minWidth: 220, padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 15, fontFamily: fontBody }}
+                  />
+                  <button onClick={saveName} disabled={savingName || !nameDraft.trim()} style={{ ...smallButtonStyle(C.turf), opacity: savingName ? 0.6 : 1 }}>
+                    <Check size={13} /> {savingName ? "Ukládám…" : "Uložit"}
+                  </button>
+                  <button onClick={() => setRenaming(false)} style={smallButtonStyle(C.inkSoft, true)}>Zrušit</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fontDisplay }}>{club.name}</div>
+                  {isHead && (
+                    <button
+                      onClick={() => {
+                        setNameDraft(club.name);
+                        setRenaming(true);
+                      }}
+                      style={smallButtonStyle(C.inkSoft, true)}
+                    >
+                      <Pencil size={12} /> Přejmenovat
+                    </button>
+                  )}
+                </div>
+              )}
               <div
                 style={{
                   display: "inline-flex",
@@ -177,16 +260,37 @@ export default function Club() {
                             {s.email} — {s.evaluatedCount} {s.evaluatedCount === 1 ? "ohodnocený hráč" : "ohodnocených hráčů"}
                           </div>
                         </div>
-                        {s.role !== "hlavni_skaut" && (
-                          <button
-                            onClick={() => removeScout(s.id, s.name)}
-                            disabled={removingId === s.id}
-                            style={{ ...smallButtonStyle(C.red, true), opacity: removingId === s.id ? 0.6 : 1 }}
-                          >
-                            <UserMinus size={13} />
-                            {removingId === s.id ? "Odebírám…" : "Odebrat"}
-                          </button>
-                        )}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          {s.role !== "hlavni_skaut" ? (
+                            <button
+                              onClick={() => changeRole(s.id, s.name, "hlavni_skaut")}
+                              disabled={roleBusyId === s.id}
+                              style={{ ...smallButtonStyle(C.turf, true), opacity: roleBusyId === s.id ? 0.6 : 1 }}
+                            >
+                              <ShieldCheck size={13} /> Povýšit na hlavního
+                            </button>
+                          ) : (
+                            s.id !== currentUserId && (
+                              <button
+                                onClick={() => changeRole(s.id, s.name, "skaut")}
+                                disabled={roleBusyId === s.id}
+                                style={{ ...smallButtonStyle(C.inkSoft, true), opacity: roleBusyId === s.id ? 0.6 : 1 }}
+                              >
+                                <ShieldOff size={13} /> Změnit na skauta
+                              </button>
+                            )
+                          )}
+                          {s.role !== "hlavni_skaut" && (
+                            <button
+                              onClick={() => removeScout(s.id, s.name)}
+                              disabled={removingId === s.id}
+                              style={{ ...smallButtonStyle(C.red, true), opacity: removingId === s.id ? 0.6 : 1 }}
+                            >
+                              <UserMinus size={13} />
+                              {removingId === s.id ? "Odebírám…" : "Odebrat"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

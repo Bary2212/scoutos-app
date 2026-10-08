@@ -322,12 +322,29 @@ app.use("/api", (req, res, next) => {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!token) return res.status(401).json({ error: "Chybí přihlašovací token." });
+  let decoded;
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
+    decoded = jwt.verify(token, JWT_SECRET);
   } catch (err) {
     return res.status(401).json({ error: "Neplatný nebo vypršelý token, přihlas se prosím znovu." });
   }
+  // Role a klub se berou vždy z databáze, ne z tokenu — jinak by změna role nebo
+  // odebrání z klubu platily až po novém přihlášení (odebraný skaut by dál viděl
+  // data původního klubu) a smazaný účet by dál fungoval do vypršení tokenu.
+  pool
+    .query("SELECT id, name, email, role, club_id, is_demo_team FROM users WHERE id = $1", [decoded.id])
+    .then(({ rows }) => {
+      const u = rows[0];
+      if (!u) return res.status(401).json({ error: "Účet už neexistuje, přihlas se prosím znovu." });
+      req.user = { ...decoded, name: u.name, email: u.email, role: u.role, clubId: u.club_id, isDemoTeam: !!u.is_demo_team, isAdmin: isAdminEmail(u.email) };
+      next();
+    })
+    .catch(() => res.status(500).json({ error: "Nepodařilo se ověřit přihlášení." }));
+});
+
+// Aktuální údaje přihlášeného uživatele (role, klub) — klient si je po načtení appky obnoví.
+app.get("/api/auth/me", (req, res) => {
+  res.json({ id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, clubId: req.user.clubId, isDemoTeam: !!req.user.isDemoTeam, isAdmin: !!req.user.isAdmin });
 });
 
 // ---------- ADMIN PŘEHLED MAJITELE APPKY — jen pro e-mail z ADMIN_EMAIL ----------
@@ -650,6 +667,43 @@ app.post("/api/club/regenerate-invite", async (req, res) => {
     res.json({ inviteCode });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se obnovit pozvánkový kód.", detail: err.message });
+  }
+});
+
+// Přejmenování klubu hlavním skautem.
+app.patch("/api/club", async (req, res) => {
+  try {
+    if (req.user.role !== "hlavni_skaut") return res.status(403).json({ error: "Jen hlavní skaut může přejmenovat klub." });
+    const name = String(req.body?.name || "").trim().slice(0, 100);
+    if (!name) return res.status(400).json({ error: "Název klubu nesmí být prázdný." });
+    await pool.query("UPDATE clubs SET name = $1 WHERE id = $2", [name, req.user.clubId]);
+    res.json({ name });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se přejmenovat klub.", detail: err.message });
+  }
+});
+
+// Změna role člena klubu (povýšení na hlavního skauta / návrat na běžného skauta).
+// V klubu musí vždy zůstat aspoň jeden hlavní skaut.
+app.patch("/api/club/scouts/:userId", async (req, res) => {
+  try {
+    if (req.user.role !== "hlavni_skaut") return res.status(403).json({ error: "Jen hlavní skaut může měnit role." });
+    const role = req.body?.role;
+    if (role !== "hlavni_skaut" && role !== "skaut") return res.status(400).json({ error: "Neplatná role." });
+    const targetId = Number(req.params.userId);
+
+    const { rows } = await pool.query("SELECT id, role, club_id FROM users WHERE id = $1", [targetId]);
+    const target = rows[0];
+    if (!target || target.club_id !== req.user.clubId) return res.status(404).json({ error: "Skaut v tomto klubu nenalezen." });
+
+    if (role === "skaut" && target.role === "hlavni_skaut") {
+      const { rows: heads } = await pool.query("SELECT COUNT(*)::int AS n FROM users WHERE club_id = $1 AND role = 'hlavni_skaut'", [req.user.clubId]);
+      if (heads[0].n <= 1) return res.status(400).json({ error: "V klubu musí zůstat aspoň jeden hlavní skaut." });
+    }
+    await pool.query("UPDATE users SET role = $1 WHERE id = $2", [role, targetId]);
+    res.json({ id: targetId, role });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se změnit roli.", detail: err.message });
   }
 });
 
@@ -1137,7 +1191,7 @@ app.get("/api/players/:id/evaluations", async (req, res) => {
       return res.json(own ? [{ userId: req.user.id, scoutName: req.user.name, isMe: true, ...evaluationToApi(own) }] : []);
     }
     const { rows } = await pool.query(
-      `SELECT u.id AS user_id, u.name AS scout_name, e.market_value, e.risk_level, e.scores, e.reason, e.updated_at
+      `SELECT u.id AS user_id, u.name AS scout_name, e.market_value, e.risk_level, e.scores, e.reason, e.updated_at, e.analytics
        FROM player_evaluations e
        JOIN users u ON u.id = e.user_id
        WHERE e.player_id = $1 AND u.club_id = $2
@@ -1151,9 +1205,12 @@ app.get("/api/players/:id/evaluations", async (req, res) => {
         isMe: r.user_id === req.user.id,
         marketValue: Number(r.market_value),
         riskLevel: r.risk_level,
-        scores: r.scores,
+        scores: scoresFromAnalytics(r.analytics, r.scores),
         reason: r.reason,
         updatedAt: r.updated_at,
+        breakdown: Array.isArray(r.analytics?.breakdown)
+          ? r.analytics.breakdown.map((m) => ({ id: m.id, label: m.label, percentile: Number(m.percentile) }))
+          : [],
       }))
     );
   } catch (err) {
