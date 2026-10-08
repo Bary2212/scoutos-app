@@ -1,3 +1,4 @@
+import { LEAGUE_SUGGESTIONS } from "../data/leagues.js";
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
@@ -1012,6 +1013,7 @@ export default function PlayerProfile() {
         setPlayer({
           name: data.name || "",
           club: data.club || "",
+          league: data.league || "",
           position: data.position || "",
           age: data.age || "",
           height: data.height || "",
@@ -1210,6 +1212,7 @@ export default function PlayerProfile() {
       position: player.position || "",
       birthYear: player.birthYear || "",
       club: player.club || "",
+      league: player.league || "",
       marketValue: player.marketValue || "",
       contractUntil: player.contractUntil || "",
       agent: player.agent || "",
@@ -1468,6 +1471,7 @@ export default function PlayerProfile() {
                   ["position", "Pozice"],
                   ["birthYear", "Rok narození"],
                   ["club", "Klub"],
+                  ["league", "Liga / soutěž"],
                   ["marketValue", "Tržní hodnota (M €, i desetinná, např. 1,5)"],
                   ["contractUntil", "Kontrakt do"],
                   ["agent", "Agent"],
@@ -1477,6 +1481,7 @@ export default function PlayerProfile() {
                   <div key={field}>
                     <label style={{ display: "block", fontSize: 11, color: C.inkFaint, marginBottom: 4, fontWeight: 600 }}>{label}</label>
                     <input
+                      list={field === "league" ? "liga-navrhy" : undefined}
                       value={editForm[field]}
                       onChange={(e) => setEditForm((f) => ({ ...f, [field]: e.target.value }))}
                       style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
@@ -1484,6 +1489,11 @@ export default function PlayerProfile() {
                   </div>
                 ))}
               </div>
+              <datalist id="liga-navrhy">
+                {LEAGUE_SUGGESTIONS.map((l) => (
+                  <option key={l} value={l} />
+                ))}
+              </datalist>
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="submit" disabled={savingEdit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                   <Check size={13} /> {savingEdit ? "Ukládám…" : "Uložit"}
@@ -2181,6 +2191,7 @@ export default function PlayerProfile() {
                 )}
               </div>
               {[
+                ["Liga / soutěž", player.league || "—"],
                 ["Tržní hodnota", player.marketValue ? `${Number(player.marketValue).toFixed(1)}M €` : "—"],
                 ["Kontrakt do", player.contractUntil || "—"],
                 ["Agent", player.agent || "—"],

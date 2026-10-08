@@ -48,7 +48,12 @@ const fallbackCoverageData = {
   "Polská Ekstraklasa": { Brankáři: 10, Obránci: 18, Záložníci: 22, Útočníci: 12 },
 };
 
-function coverageColor(pct) {
+function coverageColor(pct, mode) {
+  if (mode === "count") {
+    if (pct >= 2) return { bg: C.turf, text: "#fff" };
+    if (pct === 1) return { bg: C.amber, text: "#fff" };
+    return { bg: C.redSoft, text: C.red };
+  }
   if (pct >= 65) return { bg: C.turf, text: "#fff" };
   if (pct >= 35) return { bg: C.amber, text: "#fff" };
   return { bg: C.red, text: "#fff" };
@@ -118,6 +123,8 @@ export default function Dashboard() {
   const [leagues, setLeagues] = useState(fallbackLeagues);
   const [positions, setPositions] = useState(fallbackPositions);
   const [coverage, setCoverage] = useState(fallbackCoverageData);
+  const [coverageMode, setCoverageMode] = useState("percent");
+  const [withoutLeague, setWithoutLeague] = useState(0);
   const [shortlistStages, setShortlistStages] = useState(fallbackShortlistStages);
   const [playerCount, setPlayerCount] = useState(null);
   const [teamSize, setTeamSize] = useState(null);
@@ -151,6 +158,11 @@ export default function Dashboard() {
         setLeagues(coverageData.leagues);
         setPositions(coverageData.positions);
         setCoverage(coverageData.data);
+        setCoverageMode(coverageData.mode || "percent");
+        setWithoutLeague(coverageData.withoutLeague || 0);
+        if (coverageData.mode === "count" && coverageData.leagues.length > 0) {
+          setSelectedCell({ league: coverageData.leagues[0], position: coverageData.positions[0] });
+        }
         setShortlistStages(stagesData);
         setPlayerCount(playersData.filter((p) => p.hasMyEvaluation).length);
         setBackendConnected(true);
@@ -182,7 +194,10 @@ export default function Dashboard() {
   };
 
   const activeConflicts = conflicts.filter((c) => !resolvedIds.has(c.playerId));
-  const blindSpots = leagues.flatMap((l) => positions.filter((p) => coverage[l][p] < 25).map((p) => `${l} – ${p}`));
+  const isCount = coverageMode === "count";
+  const blindSpots = leagues.flatMap((l) =>
+    positions.filter((p) => (isCount ? (coverage[l]?.[p] ?? 0) === 0 : coverage[l][p] < 25)).map((p) => `${l} – ${p}`)
+  );
 
   const selectedPct = coverage[selectedCell.league]?.[selectedCell.position];
 
@@ -204,7 +219,7 @@ export default function Dashboard() {
           ) : (
             <StatCard label="Skauti v týmu" value={teamSize ?? "…"} sub={user?.role === "hlavni_skaut" ? "kolegy pozveš na stránce Klub" : "tvůj klub"} />
           )}
-          <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub="liga × pozice pod 25 %" />
+          <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub={isCount ? "pozice bez hráče v sledovaných ligách" : "liga × pozice pod 25 %"} />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }} className="md:grid-cols-12">
@@ -215,7 +230,11 @@ export default function Dashboard() {
               <SectionLabel icon={Map}>Mapa pokrytí (liga × pozice)</SectionLabel>
               {leagues.length === 0 ? (
                 <div style={{ padding: "24px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
-                  Zatím nemáš žádná data o pokrytí lig — objeví se, jakmile s týmem začnete sledovat zápasy napříč soutěžemi.
+                  {isCount
+                    ? withoutLeague > 0
+                      ? `Mapa se vyplní, jakmile u hráčů doplníš „Liga / soutěž“ (chybí u ${withoutLeague}).`
+                      : "Mapa se vyplní, jakmile přidáš hráče a u každého vyplníš „Liga / soutěž“."
+                    : "Zatím nemáš žádná data o pokrytí lig — objeví se, jakmile s týmem začnete sledovat zápasy napříč soutěžemi."}
                 </div>
               ) : (
                 <>
@@ -236,8 +255,8 @@ export default function Dashboard() {
                           <tr key={l}>
                             <td style={{ padding: "6px 8px", color: C.inkSoft, whiteSpace: "nowrap" }}>{l}</td>
                             {positions.map((p) => {
-                              const pct = coverage[l][p];
-                              const style = coverageColor(pct);
+                              const pct = coverage[l]?.[p] ?? 0;
+                              const style = coverageColor(pct, coverageMode);
                               const isSelected = selectedCell.league === l && selectedCell.position === p;
                               return (
                                 <td key={p} style={{ padding: 4, textAlign: "center" }}>
@@ -256,7 +275,7 @@ export default function Dashboard() {
                                       cursor: "pointer",
                                     }}
                                   >
-                                    {pct}%
+                                    {isCount ? pct : `${pct}%`}
                                   </button>
                                 </td>
                               );
@@ -268,12 +287,23 @@ export default function Dashboard() {
                   </div>
                   {selectedPct !== undefined && (
                     <div style={{ marginTop: 14, padding: "10px 14px", background: C.lineSoft, borderRadius: 6, fontSize: 12, color: C.inkSoft }}>
-                      <strong style={{ color: C.ink }}>{selectedCell.league} — {selectedCell.position}:</strong> {selectedPct}% pokrytí.{" "}
-                      {selectedPct < 25
-                        ? "Slepé místo — zvaž přiřazení skauta na nejbližší zápasy v této kategorii."
-                        : selectedPct < 65
-                        ? "Střední pokrytí — sledovat, ale není to kritické."
-                        : "Dobře pokryto."}
+                      <strong style={{ color: C.ink }}>{selectedCell.league} — {selectedCell.position}:</strong>{" "}
+                      {isCount
+                        ? selectedPct === 0
+                          ? "Slepé místo — v této lize na této pozici nikoho nesledujete."
+                          : selectedPct === 1
+                          ? "Sledujete 1 hráče — to je málo na srovnání, zvaž dalšího."
+                          : `Sledujete ${selectedPct} hráče.`
+                        : `${selectedPct}% pokrytí. ${
+                            selectedPct < 25
+                              ? "Slepé místo — zvaž přiřazení skauta na nejbližší zápasy v této kategorii."
+                              : selectedPct < 65
+                              ? "Střední pokrytí — sledovat, ale není to kritické."
+                              : "Dobře pokryto."
+                          }`}
+                      {isCount && withoutLeague > 0 && (
+                        <div style={{ marginTop: 6, color: C.inkFaint }}>U {withoutLeague} hráčů chybí „Liga / soutěž“, do mapy se nepočítají.</div>
+                      )}
                     </div>
                   )}
                 </>
@@ -350,6 +380,7 @@ export default function Dashboard() {
           {/* ---------- Right column ---------- */}
           <div style={{ gridColumn: "span 12" }} className="md:col-span-5">
             {/* Upcoming matches */}
+            {user?.isDemoTeam && (
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22, marginBottom: 20 }}>
               <SectionLabel icon={CalendarDays}>Nadcházející zápasy — koho poslat</SectionLabel>
               {matches.length === 0 ? (
@@ -387,6 +418,7 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Shortlist funnel */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22 }}>

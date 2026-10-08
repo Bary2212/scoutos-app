@@ -845,6 +845,7 @@ function playerRowToApi(p, evaluation, viewer) {
     age: playerAge(p),
     birthYear: p.birth_year ?? null,
     club: p.club,
+    league: p.league || "",
     contractUntil: p.contract_until,
     agent: p.agent,
     foot: p.foot,
@@ -908,16 +909,16 @@ app.get("/api/players/search", async (req, res) => {
 
 app.post("/api/players", async (req, res) => {
   try {
-    const { name, position, age, birthYear, club, marketValue, contractUntil, agent, foot, height } = req.body;
+    const { name, position, age, birthYear, club, league, marketValue, contractUntil, agent, foot, height } = req.body;
     if (!name || !position) return res.status(400).json({ error: "Chybí jméno nebo pozice." });
     const by = parseBirthYear(birthYear);
     const ageValue = by ? new Date().getFullYear() - by : Number(age) || null;
 
     const { rows } = await pool.query(
-      `INSERT INTO players (owner_id, is_shared_demo, name, position, age, birth_year, club, contract_until, agent, foot, height)
-       VALUES ($1,false,$2,$3,$4,$10,$5,$6,$7,$8,$9)
+      `INSERT INTO players (owner_id, is_shared_demo, name, position, age, birth_year, club, contract_until, agent, foot, height, league)
+       VALUES ($1,false,$2,$3,$4,$10,$5,$6,$7,$8,$9,$11)
        RETURNING *`,
-      [req.user.id, name, position, ageValue, club || "", contractUntil || "", agent || "", foot || "", height || "", by]
+      [req.user.id, name, position, ageValue, club || "", contractUntil || "", agent || "", foot || "", height || "", by, String(league || "").trim().slice(0, 80)]
     );
     const player = rows[0];
 
@@ -1034,7 +1035,7 @@ app.patch("/api/players/:id", async (req, res) => {
     // Základní identita je sdílená mezi všemi kluby, proto ji smí měnit jen ten, kdo
     // hráče založil (jinak by jeden klub přepisoval záznam, který používají ostatní).
     // Tržní hodnota je u hodnocení, tedy soukromá — ta se ukládá vždy.
-    const map = { name: "name", position: "position", age: "age", club: "club", contractUntil: "contract_until", agent: "agent", foot: "foot", height: "height" };
+    const map = { name: "name", position: "position", age: "age", club: "club", league: "league", contractUntil: "contract_until", agent: "agent", foot: "foot", height: "height" };
     // Rok narození má přednost před ručně zadaným věkem; věk se z něj dopočítá.
     if (req.body.birthYear !== undefined) {
       const by = parseBirthYear(req.body.birthYear);
@@ -1530,18 +1531,57 @@ app.delete("/api/events/:id", async (req, res) => {
   }
 });
 
+const COVERAGE_POSITIONS = ["Brankář", "Pravý obránce", "Levý obránce", "Stoper", "Defenzivní záložník", "Ofenzivní záložník", "Křídlo", "Útočník"];
+
 app.get("/api/coverage", async (req, res) => {
   try {
-    if (!req.user.isDemoTeam) return res.json({ leagues: [], positions: [], data: {} });
-    const { rows } = await pool.query("SELECT * FROM coverage");
-    const leagues = [...new Set(rows.map((r) => r.league))];
-    const positions = [...new Set(rows.map((r) => r.position))];
-    const data = {};
-    for (const r of rows) {
-      if (!data[r.league]) data[r.league] = {};
-      data[r.league][r.position] = r.value;
+    if (req.user.isDemoTeam) {
+      const { rows } = await pool.query("SELECT * FROM coverage");
+      const leagues = [...new Set(rows.map((r) => r.league))];
+      const positions = [...new Set(rows.map((r) => r.position))];
+      const data = {};
+      for (const r of rows) {
+        if (!data[r.league]) data[r.league] = {};
+        data[r.league][r.position] = r.value;
+      }
+      return res.json({ mode: "percent", leagues, positions, data });
     }
-    res.json({ leagues, positions, data });
+
+    // Skutečné účty: počet hráčů klubu (ohodnocených kýmkoli z klubu) podle ligy a pozice.
+    // Slepé místo = pozice, na které klub v dané lize nemá nikoho.
+    const { rows } = await pool.query(
+      `SELECT DISTINCT p.id, p.position, p.league
+       FROM player_evaluations e
+       JOIN users u ON u.id = e.user_id
+       JOIN players p ON p.id = e.player_id
+       WHERE u.club_id = $1`,
+      [req.user.clubId ?? -1]
+    );
+    const leagueNames = new Map(); // klíč (malá písmena) -> první zadaný zápis
+    let withoutLeague = 0;
+    const counts = {};
+    const extraPositions = new Set();
+    for (const r of rows) {
+      const name = String(r.league || "").trim();
+      if (!name) {
+        withoutLeague++;
+        continue;
+      }
+      const key = name.toLowerCase();
+      if (!leagueNames.has(key)) leagueNames.set(key, name);
+      const league = leagueNames.get(key);
+      if (!COVERAGE_POSITIONS.includes(r.position)) extraPositions.add(r.position);
+      counts[league] = counts[league] || {};
+      counts[league][r.position] = (counts[league][r.position] || 0) + 1;
+    }
+    const leagues = [...leagueNames.values()].sort((a, b) => a.localeCompare(b, "cs"));
+    const positions = [...COVERAGE_POSITIONS, ...extraPositions];
+    const data = {};
+    for (const l of leagues) {
+      data[l] = {};
+      for (const pos of positions) data[l][pos] = counts[l]?.[pos] || 0;
+    }
+    res.json({ mode: "count", leagues, positions, data, withoutLeague });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst mapu pokrytí.", detail: err.message });
   }

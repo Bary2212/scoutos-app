@@ -157,6 +157,7 @@ ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFA
 -- záměrně neukládáme (osobní údaj, často nezletilého hráče). Starší záznamy dostanou
 -- rok dopočtený z dosavadního věku.
 ALTER TABLE players ADD COLUMN IF NOT EXISTS birth_year INTEGER;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS league TEXT DEFAULT '';
 UPDATE players SET birth_year = EXTRACT(YEAR FROM now())::int - age WHERE birth_year IS NULL AND age IS NOT NULL;
 -- Appka už dřív běžela i bez sloupce share_token (veřejný odkaz na profil) —
 -- stejně bezpečně doplní i do existující produkční databáze.

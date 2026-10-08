@@ -19,6 +19,8 @@ const fontDisplay = "'Space Grotesk', sans-serif";
 const fontBody = "'Inter', sans-serif";
 
 
+import { LEAGUE_SUGGESTIONS } from "../data/leagues.js";
+
 const POSITIONS = [
   "Brankář",
   "Pravý obránce",
@@ -40,6 +42,7 @@ export default function AddPlayer() {
     position: POSITIONS[1],
     birthYear: "",
     club: "",
+    league: "",
     marketValue: "",
     contractUntil: "",
     agent: "",
@@ -199,6 +202,18 @@ export default function AddPlayer() {
               <label style={labelStyle}>Klub</label>
               <input style={inputStyle} value={form.club} onChange={update("club")} placeholder="název klubu" />
             </div>
+            <div>
+              <label style={labelStyle}>Liga / soutěž</label>
+              <input style={inputStyle} list="liga-navrhy" value={form.league} onChange={update("league")} placeholder="např. 2. liga ČR" />
+              <datalist id="liga-navrhy">
+                {LEAGUE_SUGGESTIONS.map((l) => (
+                  <option key={l} value={l} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
             <div>
               <label style={labelStyle}>Tržní hodnota (M €)</label>
               <input type="number" step="0.1" style={inputStyle} value={form.marketValue} onChange={update("marketValue")} placeholder="1.2" />
