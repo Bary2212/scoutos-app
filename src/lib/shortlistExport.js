@@ -127,10 +127,14 @@ function truncateToWidth(doc, text, maxWidth) {
   return `${truncated}…`;
 }
 
+const STRENGTHS_LINE_H = 5;
+
 function drawRow(doc, y, player, zebra) {
+  const top = Array.isArray(player.topMetrics) ? player.topMetrics : [];
+  const extra = top.length > 0 ? STRENGTHS_LINE_H : 0;
   if (zebra) {
     doc.setFillColor(...TURF_SOFT);
-    doc.rect(MARGIN, y, CONTENT_W, 7, "F");
+    doc.rect(MARGIN, y, CONTENT_W, 7 + extra, "F");
   }
   doc.setFont("Roboto", "normal");
   doc.setFontSize(9);
@@ -166,9 +170,19 @@ function drawRow(doc, y, player, zebra) {
     doc.setFont("Roboto", "normal");
   }
 
+  // Druhý řádek: nejsilnější stránky hráče (nejlépe hodnocené metriky).
+  if (top.length > 0) {
+    doc.setFont("Roboto", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...INK_FAINT);
+    const text = `Nejsilnější stránky: ${top.map((m) => `${m.label} ${m.rating}/10`).join("  •  ")}`;
+    doc.text(truncateToWidth(doc, text, CONTENT_W - 4), MARGIN + 2, y + 7 + 3.2);
+    doc.setFontSize(9);
+  }
+
   doc.setDrawColor(...LINE);
-  doc.line(MARGIN, y + 7, MARGIN + CONTENT_W, y + 7);
-  return y + 7;
+  doc.line(MARGIN, y + 7 + extra, MARGIN + CONTENT_W, y + 7 + extra);
+  return y + 7 + extra;
 }
 
 // Souhrnné statistiky nad tabulkou — tři "dlaždice" vedle sebe (počet hráčů,

@@ -705,6 +705,18 @@ function canEditPlayerIdentity(player, user) {
   return player.owner_id == null && !!user.isDemoTeam;
 }
 
+// Až tři nejlépe hodnocené metriky hráče (hodnocení 6/10 a víc) pro PDF export shortlistu.
+function topMetricsFromBreakdown(breakdown) {
+  if (!Array.isArray(breakdown)) return [];
+  return breakdown
+    .filter((m) => typeof m?.label === "string" && Number.isFinite(Number(m.percentile)))
+    .map((m) => ({ label: m.label, rating: Math.max(1, Math.min(10, Math.round(Number(m.percentile) / 10))), percentile: Number(m.percentile) }))
+    .filter((m) => m.rating >= 6)
+    .sort((a, b) => b.percentile - a.percentile)
+    .slice(0, 3)
+    .map(({ label, rating }) => ({ label, rating }));
+}
+
 // Věk hráče: pokud známe rok narození, dopočítá se (a sám stárne); jinak záložní uložený věk.
 function playerAge(row) {
   if (row?.birth_year) return new Date().getFullYear() - Number(row.birth_year);
@@ -1468,7 +1480,7 @@ app.get("/api/shortlist-stages", async (req, res) => {
 app.get("/api/shortlist", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.position, p.age, p.birth_year, p.club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level
+      `SELECT p.id, p.name, p.position, p.age, p.birth_year, p.club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level, e.analytics
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.user_id = $1 AND e.pipeline_stage IS NOT NULL
        ORDER BY p.name`,
@@ -1479,6 +1491,7 @@ app.get("/api/shortlist", async (req, res) => {
       board[r.stage]?.push({
         id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club,
         marketValue: Number(r.market_value), scores: r.scores, riskLevel: r.risk_level,
+        topMetrics: topMetricsFromBreakdown(r.analytics?.breakdown),
       });
     }
     res.json(board);
