@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Users, Copy, RefreshCw, UserMinus, Check, Pencil, ShieldCheck, ShieldOff } from "lucide-react";
+import { Link } from "react-router-dom";
 import { apiFetch } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 
@@ -294,6 +295,45 @@ export default function Club() {
                       </div>
                     ))}
                   </div>
+                </div>
+
+                <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginTop: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Hráči klubu ({club.players?.length || 0})</div>
+                  <p style={{ fontSize: 12, color: C.inkSoft, marginBottom: 14, lineHeight: 1.5 }}>
+                    Všichni hráči, které někdo z klubu ohodnotil nebo sleduje. Kliknutím otevřeš profil včetně hodnocení jednotlivých skautů.
+                  </p>
+                  {!club.players?.length ? (
+                    <div style={{ fontSize: 12, color: C.inkFaint }}>Zatím tu nejsou žádní hráči.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {club.players.map((p) => (
+                        <Link
+                          key={p.id}
+                          to={`/hrac/${p.id}`}
+                          style={{ textDecoration: "none", color: C.ink, padding: "10px 12px", border: `1px solid ${C.lineSoft}`, borderRadius: 4, display: "block" }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>
+                            {p.name}{" "}
+                            <span style={{ fontSize: 11, fontWeight: 400, color: C.inkFaint }}>
+                              {[p.position, p.club].filter(Boolean).join(" • ")}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                            {p.evaluations.map((e) => (
+                              <span
+                                key={e.userId}
+                                style={{ fontSize: 11, background: C.turfSoft, color: C.turf, padding: "3px 8px", borderRadius: 3 }}
+                              >
+                                {e.scoutName}
+                                {e.score != null ? ` • ${e.score}` : ""}
+                                {e.stage ? ` • ${e.stage}` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (

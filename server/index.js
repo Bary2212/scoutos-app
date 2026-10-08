@@ -652,6 +652,35 @@ app.get("/api/club", async (req, res) => {
         [club.id]
       );
       result.scouts = scouts.map((s) => ({ id: s.id, name: s.name, email: s.email, role: s.role, evaluatedCount: s.evaluated_count }));
+
+      // Přehled hráčů, které kdokoli z klubu ohodnotil / sleduje (jen hlavní skaut, jen jeho klub).
+      const { rows: evals } = await pool.query(
+        `SELECT p.id AS player_id, p.name AS player_name, p.position, p.club AS player_club,
+                u.id AS user_id, u.name AS scout_name,
+                e.pipeline_stage, e.scores, e.analytics, e.updated_at
+         FROM player_evaluations e
+         JOIN users u ON u.id = e.user_id
+         JOIN players p ON p.id = e.player_id
+         WHERE u.club_id = $1
+         ORDER BY p.name, u.name`,
+        [club.id]
+      );
+      const byPlayer = new Map();
+      for (const r of evals) {
+        if (!byPlayer.has(r.player_id)) {
+          byPlayer.set(r.player_id, { id: r.player_id, name: r.player_name, position: r.position, club: r.player_club, evaluations: [] });
+        }
+        const sc = scoresFromAnalytics(r.analytics, r.scores) || {};
+        const vals = [sc.pressing, sc.possession, sc.defensive].map(Number).filter(Number.isFinite);
+        byPlayer.get(r.player_id).evaluations.push({
+          userId: r.user_id,
+          scoutName: r.scout_name,
+          stage: r.pipeline_stage || null,
+          score: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null,
+          updatedAt: r.updated_at,
+        });
+      }
+      result.players = [...byPlayer.values()];
     }
     res.json(result);
   } catch (err) {
