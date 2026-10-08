@@ -958,6 +958,7 @@ export default function PlayerProfile() {
   const [notFound, setNotFound] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [editError, setEditError] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingPlayer, setDeletingPlayer] = useState(false);
   const [confirmDeletePlayer, setConfirmDeletePlayer] = useState(false);
@@ -1210,7 +1211,7 @@ export default function PlayerProfile() {
     setEditForm({
       name: player.name || "",
       position: player.position || "",
-      birthYear: player.birthYear || "",
+      birthYear: player.birthYear || (player.age ? new Date().getFullYear() - Number(player.age) : ""),
       club: player.club || "",
       league: player.league || "",
       marketValue: player.marketValue || "",
@@ -1219,6 +1220,7 @@ export default function PlayerProfile() {
       foot: player.foot || "",
       height: player.height || "",
     });
+    setEditError(null);
     setEditing(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1226,17 +1228,31 @@ export default function PlayerProfile() {
   const saveEdit = (e) => {
     e.preventDefault();
     setSavingEdit(true);
+    setEditError(null);
     apiFetch(`/api/players/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm),
     })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Uložení se nepovedlo, zkus to prosím znovu.");
+        }
+        return res.json();
+      })
       .then((updated) => {
         setPlayer((p) => ({ ...p, ...updated, marketValue: updated.marketValue ?? p.marketValue }));
+        // Údaje sdíleného hráče smí měnit jen ten, kdo ho založil — server je jinak
+        // beze slova ignoruje, tak to řekneme nahlas.
+        const sent = String(editForm.league ?? "").trim();
+        if (updated.canEditIdentity === false && (sent !== String(updated.league || "") || String(editForm.name).trim() !== updated.name)) {
+          setEditError("Základní údaje (jméno, klub, liga…) může měnit jen skaut, který hráče založil. Uložila se pouze tvoje tržní hodnota.");
+          return;
+        }
         setEditing(false);
       })
-      .catch(() => {})
+      .catch((err) => setEditError(err.message || "Uložení se nepovedlo, zkus to prosím znovu."))
       .finally(() => setSavingEdit(false));
   };
 
@@ -1494,6 +1510,9 @@ export default function PlayerProfile() {
                   <option key={l} value={l} />
                 ))}
               </datalist>
+              {editError && (
+                <div style={{ background: C.redSoft, color: C.red, padding: "9px 12px", borderRadius: 4, fontSize: 12, marginBottom: 12, lineHeight: 1.5 }}>{editError}</div>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="submit" disabled={savingEdit} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                   <Check size={13} /> {savingEdit ? "Ukládám…" : "Uložit"}
