@@ -152,6 +152,12 @@ CREATE TABLE IF NOT EXISTS player_evaluations (
 -- Appka už dřív běžela bez sloupce pipeline_stage (shortlist kanban) —
 -- ADD COLUMN IF NOT EXISTS ho bezpečně doplní i do existující produkční databáze.
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFAULT NULL;
+
+-- Rok narození místo pevného věku: věk se dopočítá a sám stárne. Plné datum narození
+-- záměrně neukládáme (osobní údaj, často nezletilého hráče). Starší záznamy dostanou
+-- rok dopočtený z dosavadního věku.
+ALTER TABLE players ADD COLUMN IF NOT EXISTS birth_year INTEGER;
+UPDATE players SET birth_year = EXTRACT(YEAR FROM now())::int - age WHERE birth_year IS NULL AND age IS NOT NULL;
 -- Appka už dřív běžela i bez sloupce share_token (veřejný odkaz na profil) —
 -- stejně bezpečně doplní i do existující produkční databáze.
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS share_token TEXT UNIQUE DEFAULT NULL;

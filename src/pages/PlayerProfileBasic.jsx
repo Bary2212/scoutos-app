@@ -51,7 +51,7 @@ export default function PlayerProfileBasic() {
     setEditForm({
       name: player.name || "",
       position: player.position || "",
-      age: player.age || "",
+      birthYear: player.birthYear || "",
       club: player.club || "",
       marketValue: player.marketValue || "",
       contractUntil: player.contractUntil || "",
@@ -237,7 +237,7 @@ export default function PlayerProfileBasic() {
                 {[
                   ["name", "Jméno"],
                   ["position", "Pozice"],
-                  ["age", "Věk"],
+                  ["birthYear", "Rok narození"],
                   ["club", "Klub"],
                   ["marketValue", "Tržní hodnota (M €, i desetinná, např. 1,5)"],
                   ["contractUntil", "Kontrakt do"],

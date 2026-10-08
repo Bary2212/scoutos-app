@@ -283,7 +283,7 @@ app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 app.get("/api/public/profile/:token", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id AS player_id, p.name, p.position, p.age, p.club, p.contract_until, p.agent, p.foot, p.height,
+      `SELECT p.id AS player_id, p.name, p.position, p.age, p.birth_year, p.club, p.contract_until, p.agent, p.foot, p.height,
               e.market_value, e.minutes_tracked, e.risk_level, e.scores, e.reason, e.analytics
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.share_token = $1`,
@@ -295,7 +295,7 @@ app.get("/api/public/profile/:token", async (req, res) => {
       id: row.player_id,
       name: row.name,
       position: row.position,
-      age: row.age,
+      age: playerAge(row),
       club: row.club,
       contract_until: row.contract_until,
       agent: row.agent,
@@ -705,6 +705,19 @@ function canEditPlayerIdentity(player, user) {
   return player.owner_id == null && !!user.isDemoTeam;
 }
 
+// Věk hráče: pokud známe rok narození, dopočítá se (a sám stárne); jinak záložní uložený věk.
+function playerAge(row) {
+  if (row?.birth_year) return new Date().getFullYear() - Number(row.birth_year);
+  return row?.age ?? null;
+}
+
+// Rok narození z formuláře (4 číslice, rozumný rozsah) nebo null.
+function parseBirthYear(value) {
+  const y = Number(value);
+  const now = new Date().getFullYear();
+  return Number.isInteger(y) && y >= now - 60 && y <= now - 5 ? y : null;
+}
+
 // Částka z formuláře: akceptuje "1,5", "1.5" i "1 500" (česká čárka a mezery).
 function parseMoney(value) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -734,7 +747,8 @@ function playerRowToApi(p, evaluation, viewer) {
     id: p.id,
     name: p.name,
     position: p.position,
-    age: p.age,
+    age: playerAge(p),
+    birthYear: p.birth_year ?? null,
     club: p.club,
     contractUntil: p.contract_until,
     agent: p.agent,
@@ -788,10 +802,10 @@ app.get("/api/players/search", async (req, res) => {
     const name = (req.query.name || "").trim();
     if (!name) return res.json([]);
     const { rows } = await pool.query(
-      "SELECT id, name, position, age, club FROM players WHERE name ILIKE $1 ORDER BY name LIMIT 6",
+      "SELECT id, name, position, age, birth_year, club FROM players WHERE name ILIKE $1 ORDER BY name LIMIT 6",
       [`%${name}%`]
     );
-    res.json(rows.map((r) => ({ id: r.id, name: r.name, position: r.position, age: r.age, club: r.club })));
+    res.json(rows.map((r) => ({ id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club })));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se vyhledat hráče.", detail: err.message });
   }
@@ -799,14 +813,16 @@ app.get("/api/players/search", async (req, res) => {
 
 app.post("/api/players", async (req, res) => {
   try {
-    const { name, position, age, club, marketValue, contractUntil, agent, foot, height } = req.body;
+    const { name, position, age, birthYear, club, marketValue, contractUntil, agent, foot, height } = req.body;
     if (!name || !position) return res.status(400).json({ error: "Chybí jméno nebo pozice." });
+    const by = parseBirthYear(birthYear);
+    const ageValue = by ? new Date().getFullYear() - by : Number(age) || null;
 
     const { rows } = await pool.query(
-      `INSERT INTO players (owner_id, is_shared_demo, name, position, age, club, contract_until, agent, foot, height)
-       VALUES ($1,false,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO players (owner_id, is_shared_demo, name, position, age, birth_year, club, contract_until, agent, foot, height)
+       VALUES ($1,false,$2,$3,$4,$10,$5,$6,$7,$8,$9)
        RETURNING *`,
-      [req.user.id, name, position, Number(age) || null, club || "", contractUntil || "", agent || "", foot || "", height || ""]
+      [req.user.id, name, position, ageValue, club || "", contractUntil || "", agent || "", foot || "", height || "", by]
     );
     const player = rows[0];
 
@@ -897,7 +913,7 @@ app.get("/api/players/:id/similar", async (req, res) => {
           name: c.name,
           similarity,
           priceDelta,
-          age: c.age,
+          age: playerAge(c),
           marketValue: `${marketValue.toFixed(1)}M €`,
           score,
           risk: c.risk_level || "low",
@@ -924,13 +940,24 @@ app.patch("/api/players/:id", async (req, res) => {
     // hráče založil (jinak by jeden klub přepisoval záznam, který používají ostatní).
     // Tržní hodnota je u hodnocení, tedy soukromá — ta se ukládá vždy.
     const map = { name: "name", position: "position", age: "age", club: "club", contractUntil: "contract_until", agent: "agent", foot: "foot", height: "height" };
+    // Rok narození má přednost před ručně zadaným věkem; věk se z něj dopočítá.
+    if (req.body.birthYear !== undefined) {
+      const by = parseBirthYear(req.body.birthYear);
+      req.body.age = by ? new Date().getFullYear() - by : null;
+      req.body.birth_year_value = by;
+      map.birth_year_value = "birth_year";
+    } else if (req.body.age !== undefined) {
+      const a = Number(req.body.age) || null;
+      req.body.birth_year_value = a ? new Date().getFullYear() - a : null;
+      map.birth_year_value = "birth_year";
+    }
     const sets = [];
     const values = [];
     let i = 1;
     for (const [bodyField, column] of Object.entries(map)) {
       if (req.body[bodyField] !== undefined) {
         let value = req.body[bodyField];
-        if (bodyField === "age") value = Number(value) || null;
+        if (bodyField === "age") value = value === null ? null : Number(value) || null;
         sets.push(`${column} = $${i++}`);
         values.push(value);
       }
@@ -1441,7 +1468,7 @@ app.get("/api/shortlist-stages", async (req, res) => {
 app.get("/api/shortlist", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.position, p.age, p.club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level
+      `SELECT p.id, p.name, p.position, p.age, p.birth_year, p.club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.user_id = $1 AND e.pipeline_stage IS NOT NULL
        ORDER BY p.name`,
@@ -1450,7 +1477,7 @@ app.get("/api/shortlist", async (req, res) => {
     const board = Object.fromEntries(PIPELINE_STAGES.map((s) => [s, []]));
     for (const r of rows) {
       board[r.stage]?.push({
-        id: r.id, name: r.name, position: r.position, age: r.age, club: r.club,
+        id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club,
         marketValue: Number(r.market_value), scores: r.scores, riskLevel: r.risk_level,
       });
     }

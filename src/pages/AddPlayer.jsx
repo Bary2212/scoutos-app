@@ -38,7 +38,7 @@ export default function AddPlayer() {
   const [form, setForm] = useState({
     name: "",
     position: POSITIONS[1],
-    age: "",
+    birthYear: "",
     club: "",
     marketValue: "",
     contractUntil: "",
@@ -184,8 +184,13 @@ export default function AddPlayer() {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Věk</label>
-              <input type="number" style={inputStyle} value={form.age} onChange={update("age")} placeholder="21" />
+              <label style={labelStyle}>
+                Rok narození
+                {/^\d{4}$/.test(String(form.birthYear)) && (
+                  <span style={{ fontWeight: 400, marginLeft: 6 }}>({new Date().getFullYear() - Number(form.birthYear)} let)</span>
+                )}
+              </label>
+              <input type="number" min={1960} max={new Date().getFullYear() - 5} style={inputStyle} value={form.birthYear} onChange={update("birthYear")} placeholder="2004" />
             </div>
           </div>
 
