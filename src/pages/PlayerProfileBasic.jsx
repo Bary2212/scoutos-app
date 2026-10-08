@@ -221,7 +221,7 @@ export default function PlayerProfileBasic() {
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontFamily: fontDisplay, fontSize: 13, fontWeight: 700 }}>Základní údaje</div>
-            {!editing && player.canEditIdentity !== false && (
+            {!editing && (
               <button
                 onClick={startEditing}
                 style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}

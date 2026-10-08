@@ -158,6 +158,16 @@ ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS pipeline_stage TEXT DEFA
 -- rok dopočtený z dosavadního věku.
 ALTER TABLE players ADD COLUMN IF NOT EXISTS birth_year INTEGER;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS league TEXT DEFAULT '';
+
+-- Údaje, které se v čase mění (klub, liga, pozice, kontrakt, agent, noha, výška),
+-- si vede každý skaut sám u svého hodnocení. NULL = použij výchozí hodnotu z players.
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS club TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS league TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS position TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS contract_until TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS agent TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS foot TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS height TEXT;
 UPDATE players SET birth_year = EXTRACT(YEAR FROM now())::int - age WHERE birth_year IS NULL AND age IS NOT NULL;
 -- Appka už dřív běžela i bez sloupce share_token (veřejný odkaz na profil) —
 -- stejně bezpečně doplní i do existující produkční databáze.

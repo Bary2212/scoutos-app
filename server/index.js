@@ -283,7 +283,10 @@ app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 app.get("/api/public/profile/:token", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id AS player_id, p.name, p.position, p.age, p.birth_year, p.club, p.contract_until, p.agent, p.foot, p.height,
+      `SELECT p.id AS player_id, p.name, p.age, p.birth_year,
+              COALESCE(e.position, p.position) AS position, COALESCE(e.club, p.club) AS club,
+              COALESCE(e.league, p.league) AS league, COALESCE(e.contract_until, p.contract_until) AS contract_until,
+              COALESCE(e.agent, p.agent) AS agent, COALESCE(e.foot, p.foot) AS foot, COALESCE(e.height, p.height) AS height,
               e.market_value, e.minutes_tracked, e.risk_level, e.scores, e.reason, e.analytics
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.share_token = $1`,
@@ -297,6 +300,7 @@ app.get("/api/public/profile/:token", async (req, res) => {
       position: row.position,
       age: playerAge(row),
       club: row.club,
+      league: row.league,
       contract_until: row.contract_until,
       agent: row.agent,
       foot: row.foot,
@@ -655,7 +659,7 @@ app.get("/api/club", async (req, res) => {
 
       // Přehled hráčů, které kdokoli z klubu ohodnotil / sleduje (jen hlavní skaut, jen jeho klub).
       const { rows: evals } = await pool.query(
-        `SELECT p.id AS player_id, p.name AS player_name, p.position, p.club AS player_club,
+        `SELECT p.id AS player_id, p.name AS player_name, COALESCE(e.position, p.position) AS position, COALESCE(e.club, p.club) AS player_club,
                 u.id AS user_id, u.name AS scout_name,
                 e.pipeline_stage, e.scores, e.analytics, e.updated_at
          FROM player_evaluations e
@@ -841,15 +845,16 @@ function playerRowToApi(p, evaluation, viewer) {
     ...(viewer ? { canEditIdentity: canEditPlayerIdentity(p, viewer) } : {}),
     id: p.id,
     name: p.name,
-    position: p.position,
+    // Měnící se údaje: moje vlastní hodnota (z mého hodnocení), jinak výchozí ze sdíleného hráče.
+    position: evaluation?.position ?? p.position,
     age: playerAge(p),
     birthYear: p.birth_year ?? null,
-    club: p.club,
-    league: p.league || "",
-    contractUntil: p.contract_until,
-    agent: p.agent,
-    foot: p.foot,
-    height: p.height,
+    club: evaluation?.club ?? p.club,
+    league: evaluation?.league ?? p.league ?? "",
+    contractUntil: evaluation?.contract_until ?? p.contract_until,
+    agent: evaluation?.agent ?? p.agent,
+    foot: evaluation?.foot ?? p.foot,
+    height: evaluation?.height ?? p.height,
     hasMyEvaluation,
     marketValue: hasMyEvaluation ? Number(evaluation.market_value) : 0,
     minutesTracked: hasMyEvaluation ? evaluation.minutes_tracked : 0,
@@ -972,9 +977,9 @@ app.get("/api/players/:id/similar", async (req, res) => {
     const baseBreakdown = baseEval?.analytics?.breakdown || [];
     if (baseBreakdown.length === 0) return res.json([]);
 
-    const baseCategory = categoryOf(basePlayer.position);
+    const baseCategory = categoryOf(baseEval?.position ?? basePlayer.position);
     const { rows: candidates } = await pool.query(
-      `SELECT p.*, e.market_value, e.risk_level, e.scores, e.analytics
+      `SELECT p.*, COALESCE(e.position, p.position) AS position, e.market_value, e.risk_level, e.scores, e.analytics
        FROM players p
        JOIN player_evaluations e ON e.player_id = p.id AND e.user_id = $1
        WHERE p.id != $2`,
@@ -1032,63 +1037,74 @@ app.patch("/api/players/:id", async (req, res) => {
     const player = rows[0];
     if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
 
-    // Základní identita je sdílená mezi všemi kluby, proto ji smí měnit jen ten, kdo
-    // hráče založil (jinak by jeden klub přepisoval záznam, který používají ostatní).
-    // Tržní hodnota je u hodnocení, tedy soukromá — ta se ukládá vždy.
-    const map = { name: "name", position: "position", age: "age", club: "club", league: "league", contractUntil: "contract_until", agent: "agent", foot: "foot", height: "height" };
-    // Rok narození má přednost před ručně zadaným věkem; věk se z něj dopočítá.
-    if (req.body.birthYear !== undefined) {
-      const by = parseBirthYear(req.body.birthYear);
-      req.body.age = by ? new Date().getFullYear() - by : null;
-      req.body.birth_year_value = by;
-      map.birth_year_value = "birth_year";
-    } else if (req.body.age !== undefined) {
-      const a = Number(req.body.age) || null;
-      req.body.birth_year_value = a ? new Date().getFullYear() - a : null;
-      map.birth_year_value = "birth_year";
-    }
+    // Sdílená je jen neměnná identita (jméno, rok narození) — tu smí upravit jen ten, kdo
+    // hráče založil, ať jeden klub nepřepisuje záznam, který používají ostatní.
     const sets = [];
     const values = [];
     let i = 1;
-    for (const [bodyField, column] of Object.entries(map)) {
-      if (req.body[bodyField] !== undefined) {
-        let value = req.body[bodyField];
-        if (bodyField === "age") value = value === null ? null : Number(value) || null;
-        sets.push(`${column} = $${i++}`);
-        values.push(value);
+    if (canEditPlayerIdentity(player, req.user)) {
+      if (req.body.name !== undefined && String(req.body.name).trim()) {
+        sets.push(`name = $${i++}`);
+        values.push(String(req.body.name).trim());
+      }
+      // Prázdný rok narození nesmí smazat už známý věk (starší hráči ho mají jen jako věk).
+      if (req.body.birthYear !== undefined && parseBirthYear(req.body.birthYear) === null && player.age && req.body.age === undefined) {
+        delete req.body.birthYear;
+      }
+      // Rok narození má přednost před ručně zadaným věkem; věk se z něj dopočítá.
+      if (req.body.birthYear !== undefined) {
+        const by = parseBirthYear(req.body.birthYear);
+        sets.push(`age = $${i++}`);
+        values.push(by ? new Date().getFullYear() - by : null);
+        sets.push(`birth_year = $${i++}`);
+        values.push(by);
+      } else if (req.body.age !== undefined) {
+        const a = Number(req.body.age) || null;
+        sets.push(`age = $${i++}`);
+        values.push(a);
+        sets.push(`birth_year = $${i++}`);
+        values.push(a ? new Date().getFullYear() - a : null);
       }
     }
     let updatedPlayer = player;
-    if (sets.length > 0 && !canEditPlayerIdentity(player, req.user)) {
-      if (req.body.marketValue === undefined) {
-        return res.status(403).json({ error: "Základní údaje sdíleného hráče může měnit jen ten, kdo ho založil." });
-      }
-      sets.length = 0; // formulář poslal i údaje hráče — ty ignorujeme, uloží se jen moje hodnocení
-      values.length = 0;
-    }
     if (sets.length > 0) {
       values.push(player.id);
       const { rows: updated } = await pool.query(`UPDATE players SET ${sets.join(", ")} WHERE id = $${i} RETURNING *`, values);
       updatedPlayer = updated[0];
     }
 
-    // marketValue zůstává podporovaný v těle požadavku kvůli zpětné kompatibilitě
-    // s formuláři, co ho posílají spolu s bio údaji — uloží se do MÉHO hodnocení.
-    let evaluation = await getMyEvaluation(player.id, req.user.id);
-    if (req.body.marketValue !== undefined) {
-      if (!evaluation) {
-        const { rows: evalRows } = await pool.query(
-          `INSERT INTO player_evaluations (player_id, user_id, market_value, scores, reason) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-          [player.id, req.user.id, parseMoney(req.body.marketValue), JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
-        );
-        evaluation = evalRows[0];
-      } else {
-        const { rows: evalRows } = await pool.query(
-          `UPDATE player_evaluations SET market_value = $1, updated_at = now() WHERE player_id = $2 AND user_id = $3 RETURNING *`,
-          [parseMoney(req.body.marketValue), player.id, req.user.id]
-        );
-        evaluation = evalRows[0];
+    // Měnící se údaje (klub, liga, pozice, kontrakt, agent, noha, výška) a tržní hodnota
+    // jsou SOUKROMÉ — ukládají se do mého hodnocení, ostatním klubům nic nepřepíšou.
+    const BIO_FIELDS = { position: "position", club: "club", league: "league", contractUntil: "contract_until", agent: "agent", foot: "foot", height: "height" };
+    const evSets = [];
+    const evValues = [];
+    let j = 1;
+    for (const [bodyField, column] of Object.entries(BIO_FIELDS)) {
+      if (req.body[bodyField] !== undefined) {
+        const max = bodyField === "league" ? 80 : 200;
+        evSets.push(`${column} = $${j++}`);
+        evValues.push(String(req.body[bodyField] ?? "").trim().slice(0, max));
       }
+    }
+    if (req.body.marketValue !== undefined) {
+      evSets.push(`market_value = $${j++}`);
+      evValues.push(parseMoney(req.body.marketValue));
+    }
+
+    let evaluation = await getMyEvaluation(player.id, req.user.id);
+    if (evSets.length > 0) {
+      if (!evaluation) {
+        await pool.query(
+          `INSERT INTO player_evaluations (player_id, user_id, scores, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (player_id, user_id) DO NOTHING`,
+          [player.id, req.user.id, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
+        );
+      }
+      evValues.push(player.id, req.user.id);
+      const { rows: evalRows } = await pool.query(
+        `UPDATE player_evaluations SET ${evSets.join(", ")}, updated_at = now() WHERE player_id = $${j} AND user_id = $${j + 1} RETURNING *`,
+        evValues
+      );
+      evaluation = evalRows[0];
     }
 
     res.json(playerRowToApi(updatedPlayer, evaluation, req.user));
@@ -1550,11 +1566,12 @@ app.get("/api/coverage", async (req, res) => {
     // Skutečné účty: počet hráčů klubu (ohodnocených kýmkoli z klubu) podle ligy a pozice.
     // Slepé místo = pozice, na které klub v dané lize nemá nikoho.
     const { rows } = await pool.query(
-      `SELECT DISTINCT p.id, p.position, p.league
+      `SELECT DISTINCT ON (p.id) p.id, COALESCE(e.position, p.position) AS position, COALESCE(e.league, p.league) AS league
        FROM player_evaluations e
        JOIN users u ON u.id = e.user_id
        JOIN players p ON p.id = e.player_id
-       WHERE u.club_id = $1`,
+       WHERE u.club_id = $1
+       ORDER BY p.id, e.updated_at DESC`,
       [req.user.clubId ?? -1]
     );
     const leagueNames = new Map(); // klíč (malá písmena) -> první zadaný zápis
@@ -1606,7 +1623,7 @@ app.get("/api/shortlist-stages", async (req, res) => {
 app.get("/api/shortlist", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.position, p.age, p.birth_year, p.club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level, e.analytics
+      `SELECT p.id, p.name, COALESCE(e.position, p.position) AS position, p.age, p.birth_year, COALESCE(e.club, p.club) AS club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level, e.analytics
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.user_id = $1 AND e.pipeline_stage IS NOT NULL
        ORDER BY p.name`,

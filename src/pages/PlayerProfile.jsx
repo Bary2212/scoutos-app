@@ -1243,13 +1243,6 @@ export default function PlayerProfile() {
       })
       .then((updated) => {
         setPlayer((p) => ({ ...p, ...updated, marketValue: updated.marketValue ?? p.marketValue }));
-        // Údaje sdíleného hráče smí měnit jen ten, kdo ho založil — server je jinak
-        // beze slova ignoruje, tak to řekneme nahlas.
-        const sent = String(editForm.league ?? "").trim();
-        if (updated.canEditIdentity === false && (sent !== String(updated.league || "") || String(editForm.name).trim() !== updated.name)) {
-          setEditError("Základní údaje (jméno, klub, liga…) může měnit jen skaut, který hráče založil. Uložila se pouze tvoje tržní hodnota.");
-          return;
-        }
         setEditing(false);
       })
       .catch((err) => setEditError(err.message || "Uložení se nepovedlo, zkus to prosím znovu."))
@@ -1473,7 +1466,7 @@ export default function PlayerProfile() {
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "18px 24px", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: editing ? 14 : 0 }}>
             <SectionLabel>Základní údaje</SectionLabel>
-            {!editing && player.canEditIdentity !== false && (
+            {!editing && (
               <button onClick={startEditing} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                 <Pencil size={13} /> Upravit
               </button>
@@ -1498,9 +1491,11 @@ export default function PlayerProfile() {
                     <label style={{ display: "block", fontSize: 11, color: C.inkFaint, marginBottom: 4, fontWeight: 600 }}>{label}</label>
                     <input
                       list={field === "league" ? "liga-navrhy" : undefined}
+                      disabled={(field === "name" || field === "birthYear") && player.canEditIdentity === false}
+                      title={(field === "name" || field === "birthYear") && player.canEditIdentity === false ? "Jméno a rok narození může měnit jen skaut, který hráče založil." : undefined}
                       value={editForm[field]}
                       onChange={(e) => setEditForm((f) => ({ ...f, [field]: e.target.value }))}
-                      style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
+                      style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody, background: (field === "name" || field === "birthYear") && player.canEditIdentity === false ? "#F0F1EC" : "#fff" }}
                     />
                   </div>
                 ))}
@@ -2203,7 +2198,7 @@ export default function PlayerProfile() {
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <SectionLabel>Rychlé info</SectionLabel>
-                {!editing && player.canEditIdentity !== false && (
+                {!editing && (
                   <button onClick={startEditing} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: C.turf, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                     <Pencil size={13} /> Upravit
                   </button>
