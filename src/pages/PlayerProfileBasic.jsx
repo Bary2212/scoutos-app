@@ -239,7 +239,7 @@ export default function PlayerProfileBasic() {
                   ["position", "Pozice"],
                   ["age", "Věk"],
                   ["club", "Klub"],
-                  ["marketValue", "Tržní hodnota (M €)"],
+                  ["marketValue", "Tržní hodnota (M €, i desetinná, např. 1,5)"],
                   ["contractUntil", "Kontrakt do"],
                   ["agent", "Agent"],
                   ["foot", "Preferovaná noha"],

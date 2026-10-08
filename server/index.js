@@ -705,6 +705,13 @@ function canEditPlayerIdentity(player, user) {
   return player.owner_id == null && !!user.isDemoTeam;
 }
 
+// Částka z formuláře: akceptuje "1,5", "1.5" i "1 500" (česká čárka a mezery).
+function parseMoney(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const n = Number(String(value ?? "").replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
 // Skóre hráče s ručně zadanými metrikami — stejný vzorec jako v src/lib/playerScore.js
 // (zeslabený průměr percentilů). Dřív zůstávalo uložené skóre na výchozích 50, takže
 // Vyhledávání, Shortlist a Radar ukazovaly jiné číslo než profil hráče.
@@ -807,7 +814,7 @@ app.post("/api/players", async (req, res) => {
       `INSERT INTO player_evaluations (player_id, user_id, market_value, scores, reason)
        VALUES ($1,$2,$3,$4,$5)
        RETURNING *`,
-      [player.id, req.user.id, Number(marketValue) || 0, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
+      [player.id, req.user.id, parseMoney(marketValue), JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
     );
     res.status(201).json(playerRowToApi(player, evalRows[0], req.user));
   } catch (err) {
@@ -949,13 +956,13 @@ app.patch("/api/players/:id", async (req, res) => {
       if (!evaluation) {
         const { rows: evalRows } = await pool.query(
           `INSERT INTO player_evaluations (player_id, user_id, market_value, scores, reason) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-          [player.id, req.user.id, Number(req.body.marketValue) || 0, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
+          [player.id, req.user.id, parseMoney(req.body.marketValue), JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
         );
         evaluation = evalRows[0];
       } else {
         const { rows: evalRows } = await pool.query(
           `UPDATE player_evaluations SET market_value = $1, updated_at = now() WHERE player_id = $2 AND user_id = $3 RETURNING *`,
-          [Number(req.body.marketValue) || 0, player.id, req.user.id]
+          [parseMoney(req.body.marketValue), player.id, req.user.id]
         );
         evaluation = evalRows[0];
       }
@@ -1000,7 +1007,7 @@ app.patch("/api/players/:id/analytics", async (req, res) => {
     for (const [bodyField, column] of Object.entries(EVAL_SCALAR_FIELDS)) {
       if (req.body[bodyField] !== undefined) {
         let value = req.body[bodyField];
-        if (bodyField === "marketValue") value = Number(value) || 0;
+        if (bodyField === "marketValue") value = parseMoney(value);
         if (bodyField === "minutesTracked") value = Number(value) || 0;
         sets.push(`${column} = $${i++}`);
         values.push(value);
