@@ -75,11 +75,16 @@ export default function ValueRadar() {
       .finally(() => setLoading(false));
   }, []);
 
-  const { ranked, skippedCount } = useMemo(() => {
-    const withScore = players.map((p) => ({ p, ...computePlayerScore(p, style) }));
+  const { ranked, incomplete } = useMemo(() => {
+    // Do radaru patří jen hráči, které má přihlášený skaut ve svém sledování.
+    const mine = players.filter((p) => p.hasMyEvaluation);
+    const withScore = mine.map((p) => ({ p, ...computePlayerScore(p, style) }));
     const eligible = withScore.filter((x) => x.hasAnalytics && x.p.marketValue > 0);
     eligible.sort((a, b) => b.score / b.p.marketValue - a.score / a.p.marketValue);
-    return { ranked: eligible, skippedCount: withScore.length - eligible.length };
+    const missing = withScore
+      .filter((x) => !(x.hasAnalytics && x.p.marketValue > 0))
+      .map((x) => ({ p: x.p, needsStats: !x.hasAnalytics, needsValue: !(x.p.marketValue > 0) }));
+    return { ranked: eligible, incomplete: missing };
   }, [players, style]);
 
   const maxRatio = ranked.length > 0 ? ranked[0].score / ranked[0].p.marketValue : 1;
@@ -166,15 +171,27 @@ export default function ValueRadar() {
             </div>
 
             {ranked.length === 0 && (
-              <div style={{ textAlign: "center", padding: "40px 0", color: C.inkFaint, fontSize: 13 }}>
-                Zatím žádný hráč nemá dost dat (AI skóre i tržní hodnotu) pro zařazení do radaru.
+              <div style={{ textAlign: "center", padding: "32px 0 8px", color: C.inkFaint, fontSize: 13, lineHeight: 1.6 }}>
+                {incomplete.length === 0
+                  ? "Zatím nesleduješ žádného hráče. Přidej hráče a zadej mu statistiky a tržní hodnotu."
+                  : "Radar potřebuje u hráče statistiky (skóre) i tržní hodnotu. Doplň, co chybí níže."}
               </div>
             )}
 
-            {skippedCount > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16, fontSize: 12, color: C.inkFaint }}>
-                <Info size={13} />
-                {skippedCount} {skippedCount === 1 ? "hráč nemá" : "hráčů nemá"} dost dat (chybí AI skóre nebo tržní hodnota) — v radaru se nezobrazuje.
+            {incomplete.length > 0 && (
+              <div style={{ marginTop: 16, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "12px 16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.inkFaint, marginBottom: 8 }}>
+                  <Info size={13} />
+                  Tito hráči zatím nejsou v radaru:
+                </div>
+                {incomplete.map(({ p, needsStats, needsValue }) => (
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "6px 0", borderTop: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                    <Link to={`/hrac/${p.id}`} style={{ color: C.ink, fontWeight: 600, textDecoration: "none" }}>{p.name}</Link>
+                    <span style={{ color: C.inkFaint, fontSize: 12 }}>
+                      chybí {[needsStats && "statistiky", needsValue && "tržní hodnota (Rychlé info → Upravit)"].filter(Boolean).join(" a ")}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
           </>
