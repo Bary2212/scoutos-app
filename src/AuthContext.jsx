@@ -47,7 +47,7 @@ export function AuthProvider({ children }) {
   // Registrace teď NEVRACÍ rovnou token — účet musí být nejdřív ověřený kódem z e-mailu.
   // inviteCode je nepovinný — pokud ho uživatel vyplní, přidá se jako skaut do
   // existujícího klubu; bez kódu dostane rovnou svůj vlastní nový klub.
-  const register = async (firstName, lastName, email, password, passwordConfirm, inviteCode) => {
+  const register = async (firstName, lastName, email, password, passwordConfirm, inviteCode, acceptTerms) => {
     const res = await fetch(`${API_BASE}/api/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -58,6 +58,7 @@ export function AuthProvider({ children }) {
         password,
         passwordConfirm,
         inviteCode: inviteCode ? inviteCode.trim() : undefined,
+        acceptTerms: acceptTerms === true,
       }),
     });
     const data = await res.json();

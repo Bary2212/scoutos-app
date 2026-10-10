@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { Lock, UserPlus2, MailCheck } from "lucide-react";
 import { useAuth } from "../AuthContext.jsx";
 
@@ -36,6 +36,7 @@ export default function Login() {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [code, setCode] = useState("");
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
@@ -84,10 +85,14 @@ export default function Login() {
       setError("Hesla se neshodují.");
       return;
     }
+    if (!acceptTerms) {
+      setError("Pro registraci je potřeba souhlasit s Podmínkami použití a Zásadami ochrany osobních údajů.");
+      return;
+    }
 
     setSubmitting(true);
     try {
-      await register(firstName, lastName, email, password, passwordConfirm, inviteCode);
+      await register(firstName, lastName, email, password, passwordConfirm, inviteCode, acceptTerms);
       setMode("verify");
       setInfo("Poslali jsme ti na e-mail ověřovací kód. Zadej ho níže.");
     } catch (err) {
@@ -186,6 +191,13 @@ export default function Login() {
               placeholder="Např. KA7CR6PT — vyplň, jen pokud se přidáváš k existujícímu klubu"
               style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 1 }}
             />
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: C.inkSoft, lineHeight: 1.5, marginBottom: 16, cursor: "pointer" }}>
+              <input type="checkbox" checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>
+                Souhlasím s <Link to="/podminky" target="_blank" style={{ color: C.turf, fontWeight: 600 }}>Podmínkami použití</Link> a beru na vědomí{" "}
+                <Link to="/soukromi" target="_blank" style={{ color: C.turf, fontWeight: 600 }}>Zásady ochrany osobních údajů</Link>.
+              </span>
+            </label>
             <button type="submit" disabled={submitting} style={buttonStyle(submitting)}>
               {submitting ? "Chvilku…" : "Vytvořit účet"}
             </button>
@@ -227,6 +239,11 @@ export default function Login() {
             </button>
           </form>
         )}
+        <div style={{ marginTop: 20, textAlign: "center", fontSize: 11, color: C.inkFaint }}>
+          <Link to="/podminky" style={{ color: C.inkFaint }}>Podmínky použití</Link>
+          {" · "}
+          <Link to="/soukromi" style={{ color: C.inkFaint }}>Ochrana osobních údajů</Link>
+        </div>
       </div>
     </div>
   );

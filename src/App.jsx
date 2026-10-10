@@ -17,6 +17,7 @@ import ComparePlayers from "./pages/ComparePlayers.jsx";
 import AdminOverview from "./pages/AdminOverview.jsx";
 import PublicPlayerProfile from "./pages/PublicPlayerProfile.jsx";
 import Matches from "./pages/Matches.jsx";
+import { Terms, Privacy } from "./pages/Legal.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -124,6 +125,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/prihlaseni" element={<Login />} />
+      <Route path="/podminky" element={<Terms />} />
+      <Route path="/soukromi" element={<Privacy />} />
       <Route path="/verejny/profil/:token" element={<PublicPlayerProfile />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/hledani" element={<ProtectedRoute><PlayerSearch /></ProtectedRoute>} />

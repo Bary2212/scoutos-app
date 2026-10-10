@@ -96,6 +96,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS club_id INTEGER REFERENCES clubs(id) 
 -- Poslední přihlášení (zobrazuje se v admin přehledu).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 
+-- Souhlas s Podmínkami použití a Zásadami ochrany osobních údajů (čas udělení při registraci).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
+
 -- 'players' je od verze se "sdílenou databází hráčů" jen ZÁKLADNÍ IDENTITA hráče
 -- (jméno, pozice, věk, klub...) — společná pro všechny scouty/kluby v appce, aby se
 -- stejný hráč nezakládal víckrát. owner_id/is_shared_demo/scores/reason/analytics/

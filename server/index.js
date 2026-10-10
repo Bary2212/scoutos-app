@@ -107,9 +107,12 @@ function generateCode() {
 
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { firstName, lastName, email, password, passwordConfirm, inviteCode } = req.body;
+    const { firstName, lastName, email, password, passwordConfirm, inviteCode, acceptTerms } = req.body;
     if (!firstName || !lastName || !email || !password || !passwordConfirm) {
       return res.status(400).json({ error: "Vyplň prosím všechna pole." });
+    }
+    if (acceptTerms !== true) {
+      return res.status(400).json({ error: "Pro registraci je potřeba souhlasit s Podmínkami použití a Zásadami ochrany osobních údajů." });
     }
     if (password.length < 8) return res.status(400).json({ error: "Heslo musí mít alespoň 8 znaků." });
     if (password !== passwordConfirm) return res.status(400).json({ error: "Hesla se neshodují." });
@@ -144,8 +147,8 @@ app.post("/api/auth/register", async (req, res) => {
     const name = `${firstName} ${lastName}`;
 
     const { rows: insertedRows } = await pool.query(
-      `INSERT INTO users (first_name, last_name, name, email, password_hash, role, club_id, verified, verification_code, verification_expires)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,false,$8,$9)
+      `INSERT INTO users (first_name, last_name, name, email, password_hash, role, club_id, verified, verification_code, verification_expires, terms_accepted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,false,$8,$9, now())
        RETURNING id`,
       [firstName, lastName, name, email, passwordHash, club ? "skaut" : "hlavni_skaut", club ? club.id : null, verificationCode, verificationExpires]
     );
