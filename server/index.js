@@ -440,6 +440,51 @@ app.patch("/api/admin/clubs/:id/plan", requireAdmin, async (req, res) => {
   }
 });
 
+// ---------- ADMIN — správa hráčů ----------
+// Všichni hráči v databázi (i ukázkoví a osiřelí) — majitel appky je odtud může smazat úplně.
+app.get("/api/admin/players", requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.position, p.club, p.age, p.birth_year, p.is_shared_demo, p.created_at,
+              creator.name AS creator_name,
+              (SELECT COUNT(*)::int FROM player_evaluations e WHERE e.player_id = p.id) AS evaluations,
+              (SELECT COALESCE(string_agg(u.name, ', ' ORDER BY u.name), '')
+                 FROM player_evaluations e JOIN users u ON u.id = e.user_id WHERE e.player_id = p.id) AS scouts
+       FROM players p LEFT JOIN users creator ON creator.id = p.owner_id
+       ORDER BY p.created_at DESC, p.id DESC LIMIT 3000`
+    );
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        position: r.position,
+        club: r.club,
+        age: playerAge(r),
+        isDemo: !!r.is_shared_demo,
+        creator: r.creator_name || null,
+        evaluations: r.evaluations,
+        scouts: r.scouts,
+        createdAt: r.created_at,
+      }))
+    );
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst hráče.", detail: err.message });
+  }
+});
+
+// Úplné smazání hráčů (hodnocení, reporty i komentáře všech skautů se smažou s nimi).
+app.post("/api/admin/players/delete", requireAdmin, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter((n) => Number.isInteger(n) && n > 0) : [];
+    if (ids.length === 0) return res.status(400).json({ error: "Nevybral jsi žádné hráče." });
+    if (ids.length > 500) return res.status(400).json({ error: "Najednou jde smazat nejvýš 500 hráčů." });
+    const { rowCount } = await pool.query("DELETE FROM players WHERE id = ANY($1::int[])", [ids]);
+    res.json({ deleted: rowCount });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se smazat hráče.", detail: err.message });
+  }
+});
+
 // ---------- ADMIN — správa uživatelů ----------
 function adminUserRow(u) {
   return {

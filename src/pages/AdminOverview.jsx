@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { BarChart3, Loader2, Check } from "lucide-react";
 import { apiFetch } from "../api.js";
 import AdminUsers from "./AdminUsers.jsx";
+import AdminPlayers from "./AdminPlayers.jsx";
 
 // Admin přehled majitele appky — počty uživatelů a klubů, registrace v čase a
 // ruční správa tarifu klubů (zdarma / placený). Backend ho pustí jen účtu,
@@ -199,7 +200,7 @@ function ClubRow({ club, onSaved }) {
 export default function AdminOverview() {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("loading"); // loading | ok | forbidden | error
-  const [tab, setTab] = useState("overview"); // overview | users
+  const [tab, setTab] = useState("overview"); // overview | users | players
 
   useEffect(() => {
     apiFetch("/api/admin/overview")
@@ -265,7 +266,7 @@ export default function AdminOverview() {
         <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 14 }}>Přehled bez demo účtů a bez neověřených registrací. Všechny účty najdeš v záložce Uživatelé.</div>
 
         <div style={{ display: "flex", gap: 6, marginBottom: 20, borderBottom: `1px solid ${C.line}` }}>
-          {[["overview", "Přehled"], ["users", "Uživatelé"]].map(([id, label]) => (
+          {[["overview", "Přehled"], ["users", "Uživatelé"], ["players", "Hráči"]].map(([id, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -288,6 +289,7 @@ export default function AdminOverview() {
         </div>
 
         {tab === "users" && <AdminUsers />}
+        {tab === "players" && <AdminPlayers />}
         {tab === "overview" && (
           <>
 
