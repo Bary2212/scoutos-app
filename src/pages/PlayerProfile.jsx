@@ -1436,19 +1436,19 @@ export default function PlayerProfile() {
               <Pencil size={15} />
               {hasAnalytics ? "Upravit statistiky" : "Zadat statistiky"}
             </button>
-            {!player.hasMyEvaluation ? null : !confirmDeletePlayer ? (
+            {!user?.isAdmin ? null : !confirmDeletePlayer ? (
               <button
                 onClick={() => setConfirmDeletePlayer(true)}
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.red, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}
               >
-                <Trash2 size={15} /> Odebrat hráče
+                <Trash2 size={15} /> Smazat hráče úplně
               </button>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-                <span style={{ fontSize: 11, color: C.red, fontWeight: 600, maxWidth: 260, textAlign: "right" }}>Odebrat ze tvého seznamu? Smaže se tvoje hodnocení, reporty a komentáře; ostatním skautům hráč zůstane.</span>
+                <span style={{ fontSize: 11, color: C.red, fontWeight: 600, maxWidth: 260, textAlign: "right" }}>Smazat hráče úplně? Smažou se i hodnocení, reporty a komentáře všech skautů. Nejde to vrátit.</span>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={deletePlayer} disabled={deletingPlayer} style={{ padding: "6px 12px", background: C.red, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                    {deletingPlayer ? "Odebírám…" : "Ano, odebrat"}
+                    {deletingPlayer ? "Mažu…" : "Ano, smazat"}
                   </button>
                   <button onClick={() => setConfirmDeletePlayer(false)} style={{ padding: "6px 12px", background: "#fff", color: C.inkSoft, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                     Zrušit

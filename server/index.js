@@ -1234,31 +1234,13 @@ app.patch("/api/players/:id/analytics", async (req, res) => {
 // "Smazat hráče" odebere hráče jen z MÉHO pohledu: smaže moje hodnocení, moje reporty
 // a moje komentáře. Sdílený záznam hráče se smaže úplně, až když k němu už nikdo
 // jiný nic nemá — jinak by zmizela data ostatních skautů a klubů.
-app.delete("/api/players/:id", async (req, res) => {
+// Hráče smí mazat jen správce aplikace (smaže ho úplně, včetně hodnocení, reportů
+// a komentářů všech skautů). Skauti hráče mazat nemůžou — sdílený záznam používají i ostatní.
+app.delete("/api/players/:id", requireAdmin, async (req, res) => {
   try {
-    const playerId = Number(req.params.id);
-    const { rows } = await pool.query("SELECT * FROM players WHERE id = $1", [playerId]);
-    const player = rows[0];
-    if (!player) return res.status(404).json({ error: "Hráč nenalezen." });
-
-    const mine = await getMyEvaluation(playerId, req.user.id);
-    if (!mine && player.owner_id !== req.user.id) {
-      return res.status(404).json({ error: "Tohoto hráče nemáš ve svém seznamu." });
-    }
-
-    await pool.query("DELETE FROM player_evaluations WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
-    await pool.query("DELETE FROM reports WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
-    await pool.query("DELETE FROM player_comments WHERE player_id = $1 AND user_id = $2", [playerId, req.user.id]);
-
-    const { rows: left } = await pool.query(
-      `SELECT (SELECT COUNT(*) FROM player_evaluations WHERE player_id = $1)
-            + (SELECT COUNT(*) FROM reports WHERE player_id = $1)
-            + (SELECT COUNT(*) FROM player_comments WHERE player_id = $1) AS n`,
-      [playerId]
-    );
-    const recordDeleted = Number(left[0].n) === 0;
-    if (recordDeleted) await pool.query("DELETE FROM players WHERE id = $1", [playerId]);
-    res.json({ deleted: true, recordDeleted });
+    const { rowCount } = await pool.query("DELETE FROM players WHERE id = $1", [Number(req.params.id)]);
+    if (rowCount === 0) return res.status(404).json({ error: "Hráč nenalezen." });
+    res.json({ deleted: true, recordDeleted: true });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se smazat hráče.", detail: err.message });
   }

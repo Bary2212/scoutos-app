@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Send, Loader2, ShieldAlert, Pencil, Check, X, Trash2 } from "lucide-react";
 import { apiFetch } from "../api.js";
+import { useAuth } from "../AuthContext.jsx";
 
 const C = {
   bg: "#F5F6F1",
@@ -32,6 +33,7 @@ function recommendationStyle(recommendation) {
 }
 
 export default function PlayerProfileBasic() {
+  const { user } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const [player, setPlayer] = useState(null);
@@ -180,23 +182,23 @@ export default function PlayerProfileBasic() {
                 {player.position} {player.club && `— ${player.club}`} {player.age && `— ${player.age} let`}
               </div>
             </div>
-            {!player.hasMyEvaluation ? null : !confirmDeletePlayer ? (
+            {!user?.isAdmin ? null : !confirmDeletePlayer ? (
               <button
                 onClick={() => setConfirmDeletePlayer(true)}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", color: C.red, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
               >
-                <Trash2 size={13} /> Odebrat hráče
+                <Trash2 size={13} /> Smazat hráče úplně
               </button>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: C.red, fontWeight: 600, maxWidth: 260, textAlign: "right" }}>Odebrat ze tvého seznamu? Smaže se tvoje hodnocení, reporty a komentáře; ostatním skautům hráč zůstane.</span>
+                <span style={{ fontSize: 11, color: C.red, fontWeight: 600, maxWidth: 260, textAlign: "right" }}>Smazat hráče úplně? Smažou se i hodnocení, reporty a komentáře všech skautů. Nejde to vrátit.</span>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
                     onClick={deletePlayer}
                     disabled={deletingPlayer}
                     style={{ padding: "6px 12px", background: C.red, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                   >
-                    {deletingPlayer ? "Odebírám…" : "Ano, odebrat"}
+                    {deletingPlayer ? "Mažu…" : "Ano, smazat"}
                   </button>
                   <button
                     onClick={() => setConfirmDeletePlayer(false)}
