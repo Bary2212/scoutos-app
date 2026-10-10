@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { CalendarDays, Plus, Pencil, Trash2, Check, X, AlertTriangle } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
@@ -260,6 +260,16 @@ export default function Matches() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Odkaz z mapy pokrytí: /zapasy?liga=Slovenská liga otevře formulář s předvyplněnou soutěží.
+  useEffect(() => {
+    const liga = searchParams.get("liga");
+    if (liga && head) {
+      setFormState({ initial: { ...EMPTY_FORM, competition: liga } });
+      setSearchParams({}, { replace: true });
+    }
+  }, [head, searchParams]);
 
   const load = () =>
     apiFetch("/api/club-matches")

@@ -275,6 +275,16 @@ export default function Dashboard() {
                               ? "Střední pokrytí — sledovat, ale není to kritické."
                               : "Dobře pokryto."
                           }`}
+                      {user?.role === "hlavni_skaut" && (isCount ? selectedPct <= 1 : selectedPct < 25) && (
+                        <div style={{ marginTop: 8 }}>
+                          <Link
+                            to={`/zapasy?liga=${encodeURIComponent(selectedCell.league)}`}
+                            style={{ fontSize: 12, fontWeight: 600, color: C.turf, textDecoration: "none" }}
+                          >
+                            Naplánovat zápas v této lize →
+                          </Link>
+                        </div>
+                      )}
                       {isCount && withoutLeague > 0 && (
                         <div style={{ marginTop: 6, color: C.inkFaint }}>U {withoutLeague} hráčů chybí „Liga / soutěž“, do mapy se nepočítají.</div>
                       )}
