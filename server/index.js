@@ -440,6 +440,217 @@ app.patch("/api/admin/clubs/:id/plan", requireAdmin, async (req, res) => {
   }
 });
 
+// ---------- Plánovač zápasů klubu ----------
+// Hlavní skaut plánuje zápasy a přiděluje skauty. Skaut vidí jen zápasy, na které je
+// přidělený, a může je potvrdit / odmítnout / označit jako odehrané. Zápasy se nikdy
+// nesdílejí mezi kluby (všechno se filtruje podle club_id přihlášeného uživatele).
+const MATCH_STATUSES = ["prideleno", "potvrzeno", "odmitnuto", "odehrano"];
+const MATCH_CONFLICT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+function isHeadScout(req) {
+  return req.user.role === "hlavni_skaut";
+}
+
+async function loadClubMatches(req) {
+  const clubId = req.user.clubId;
+  if (!clubId) return [];
+  const head = isHeadScout(req);
+  const { rows: matches } = await pool.query(
+    `SELECT m.* FROM club_matches m
+     WHERE m.club_id = $1 AND m.kickoff >= now() - interval '30 days'
+       ${head ? "" : "AND EXISTS (SELECT 1 FROM club_match_scouts s WHERE s.match_id = m.id AND s.user_id = $2)"}
+     ORDER BY m.kickoff ASC`,
+    head ? [clubId] : [clubId, req.user.id]
+  );
+  if (matches.length === 0) return [];
+  const ids = matches.map((m) => m.id);
+  const { rows: scouts } = await pool.query(
+    `SELECT s.match_id, s.user_id, s.status, s.decline_reason, u.name
+     FROM club_match_scouts s JOIN users u ON u.id = s.user_id
+     WHERE s.match_id = ANY($1::int[]) ORDER BY u.name`,
+    [ids]
+  );
+  const { rows: players } = await pool.query(
+    `SELECT mp.match_id, p.id, p.name FROM club_match_players mp JOIN players p ON p.id = mp.player_id
+     WHERE mp.match_id = ANY($1::int[]) ORDER BY p.name`,
+    [ids]
+  );
+  // Kolize: stejný skaut přidělený na dva zápasy blízko sebe (kromě odmítnutých).
+  const byScout = new Map();
+  for (const m of matches) {
+    for (const s of scouts.filter((x) => x.match_id === m.id && x.status !== "odmitnuto")) {
+      if (!byScout.has(s.user_id)) byScout.set(s.user_id, []);
+      byScout.get(s.user_id).push(m);
+    }
+  }
+  return matches.map((m) => {
+    const ms = scouts.filter((s) => s.match_id === m.id);
+    const conflicts = ms
+      .filter((s) => s.status !== "odmitnuto")
+      .filter((s) =>
+        (byScout.get(s.user_id) || []).some(
+          (o) => o.id !== m.id && Math.abs(new Date(o.kickoff) - new Date(m.kickoff)) < MATCH_CONFLICT_WINDOW_MS
+        )
+      )
+      .map((s) => s.user_id);
+    const mine = ms.find((s) => s.user_id === req.user.id);
+    return {
+      id: m.id,
+      kickoff: m.kickoff,
+      fixture: m.fixture,
+      competition: m.competition,
+      venue: m.venue,
+      note: m.note,
+      scouts: ms.map((s) => ({ userId: s.user_id, name: s.name, status: s.status, declineReason: s.decline_reason })),
+      players: players.filter((p) => p.match_id === m.id).map((p) => ({ id: p.id, name: p.name })),
+      conflicts,
+      myStatus: mine ? mine.status : null,
+    };
+  });
+}
+
+// Zkontroluje a vyčistí tělo požadavku na zápas; vrací { error } nebo { data }.
+async function parseMatchBody(req) {
+  const fixture = String(req.body.fixture || "").trim().slice(0, 200);
+  if (!fixture) return { error: "Vyplň utkání (např. „Zbrojovka – Sparta“)." };
+  const kickoff = new Date(req.body.kickoff);
+  if (!req.body.kickoff || Number.isNaN(kickoff.getTime())) return { error: "Vyplň platné datum a čas zápasu." };
+  const scoutIds = [...new Set((Array.isArray(req.body.scoutIds) ? req.body.scoutIds : []).map(Number).filter((n) => Number.isInteger(n)))];
+  if (scoutIds.length > 0) {
+    const { rows } = await pool.query("SELECT id FROM users WHERE id = ANY($1::int[]) AND club_id = $2", [scoutIds, req.user.clubId]);
+    if (rows.length !== scoutIds.length) return { error: "Některý ze skautů není ve tvém klubu." };
+  }
+  const playerIds = [...new Set((Array.isArray(req.body.playerIds) ? req.body.playerIds : []).map(Number).filter((n) => Number.isInteger(n)))].slice(0, 30);
+  if (playerIds.length > 0) {
+    const { rows } = await pool.query("SELECT id FROM players WHERE id = ANY($1::int[])", [playerIds]);
+    if (rows.length !== playerIds.length) return { error: "Některý z hráčů neexistuje." };
+  }
+  return {
+    data: {
+      fixture,
+      kickoff,
+      competition: String(req.body.competition || "").trim().slice(0, 120),
+      venue: String(req.body.venue || "").trim().slice(0, 160),
+      note: String(req.body.note || "").trim().slice(0, 1000),
+      scoutIds,
+      playerIds,
+    },
+  };
+}
+
+async function saveMatchRelations(matchId, scoutIds, playerIds) {
+  // Skautům, kteří na zápase zůstávají, se zachová jejich stav (potvrzeno, odehráno…).
+  await pool.query("DELETE FROM club_match_scouts WHERE match_id = $1 AND NOT (user_id = ANY($2::int[]))", [matchId, scoutIds]);
+  for (const uid of scoutIds) {
+    await pool.query(
+      "INSERT INTO club_match_scouts (match_id, user_id) VALUES ($1,$2) ON CONFLICT (match_id, user_id) DO NOTHING",
+      [matchId, uid]
+    );
+  }
+  await pool.query("DELETE FROM club_match_players WHERE match_id = $1", [matchId]);
+  for (const pid of playerIds) {
+    await pool.query("INSERT INTO club_match_players (match_id, player_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [matchId, pid]);
+  }
+}
+
+app.get("/api/club-matches", async (req, res) => {
+  try {
+    res.json(await loadClubMatches(req));
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst zápasy.", detail: err.message });
+  }
+});
+
+// Podklady pro formulář: skauti klubu a hráči klubu (ti, které někdo z klubu hodnotí).
+app.get("/api/club-matches/options", async (req, res) => {
+  try {
+    if (!isHeadScout(req)) return res.status(403).json({ error: "Zápasy plánuje jen hlavní skaut." });
+    const { rows: scouts } = await pool.query("SELECT id, name, role FROM users WHERE club_id = $1 ORDER BY name", [req.user.clubId]);
+    const { rows: players } = await pool.query(
+      `SELECT DISTINCT p.id, p.name, COALESCE(e.position, p.position) AS position
+       FROM player_evaluations e JOIN users u ON u.id = e.user_id JOIN players p ON p.id = e.player_id
+       WHERE u.club_id = $1 ORDER BY p.name`,
+      [req.user.clubId]
+    );
+    res.json({ scouts, players });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se načíst podklady.", detail: err.message });
+  }
+});
+
+app.post("/api/club-matches", async (req, res) => {
+  try {
+    if (!isHeadScout(req)) return res.status(403).json({ error: "Zápasy plánuje jen hlavní skaut." });
+    const parsed = await parseMatchBody(req);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const d = parsed.data;
+    const { rows } = await pool.query(
+      `INSERT INTO club_matches (club_id, kickoff, fixture, competition, venue, note, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [req.user.clubId, d.kickoff, d.fixture, d.competition, d.venue, d.note, req.user.id]
+    );
+    await saveMatchRelations(rows[0].id, d.scoutIds, d.playerIds);
+    res.status(201).json({ id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se uložit zápas.", detail: err.message });
+  }
+});
+
+async function loadOwnClubMatch(req) {
+  const { rows } = await pool.query("SELECT * FROM club_matches WHERE id = $1 AND club_id = $2", [Number(req.params.id), req.user.clubId ?? -1]);
+  return rows[0] || null;
+}
+
+app.patch("/api/club-matches/:id", async (req, res) => {
+  try {
+    if (!isHeadScout(req)) return res.status(403).json({ error: "Zápasy plánuje jen hlavní skaut." });
+    const match = await loadOwnClubMatch(req);
+    if (!match) return res.status(404).json({ error: "Zápas nenalezen." });
+    const parsed = await parseMatchBody(req);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    const d = parsed.data;
+    await pool.query(
+      "UPDATE club_matches SET kickoff = $1, fixture = $2, competition = $3, venue = $4, note = $5 WHERE id = $6",
+      [d.kickoff, d.fixture, d.competition, d.venue, d.note, match.id]
+    );
+    await saveMatchRelations(match.id, d.scoutIds, d.playerIds);
+    res.json({ id: match.id });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se upravit zápas.", detail: err.message });
+  }
+});
+
+app.delete("/api/club-matches/:id", async (req, res) => {
+  try {
+    if (!isHeadScout(req)) return res.status(403).json({ error: "Zápasy plánuje jen hlavní skaut." });
+    const match = await loadOwnClubMatch(req);
+    if (!match) return res.status(404).json({ error: "Zápas nenalezen." });
+    await pool.query("DELETE FROM club_matches WHERE id = $1", [match.id]);
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se smazat zápas.", detail: err.message });
+  }
+});
+
+// Skaut mění stav svého přidělení: potvrdit, odmítnout (s důvodem), označit jako odehrané.
+app.patch("/api/club-matches/:id/my-status", async (req, res) => {
+  try {
+    const match = await loadOwnClubMatch(req);
+    if (!match) return res.status(404).json({ error: "Zápas nenalezen." });
+    const status = String(req.body.status || "");
+    if (!MATCH_STATUSES.includes(status) || status === "prideleno") return res.status(400).json({ error: "Neplatný stav." });
+    const reason = status === "odmitnuto" ? String(req.body.reason || "").trim().slice(0, 300) : "";
+    const { rowCount } = await pool.query(
+      "UPDATE club_match_scouts SET status = $1, decline_reason = $2, updated_at = now() WHERE match_id = $3 AND user_id = $4",
+      [status, reason, match.id, req.user.id]
+    );
+    if (rowCount === 0) return res.status(403).json({ error: "Na tenhle zápas nejsi přidělený." });
+    res.json({ status });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se změnit stav.", detail: err.message });
+  }
+});
+
 // ---------- ADMIN — správa hráčů ----------
 // Všichni hráči v databázi (i ukázkoví a osiřelí) — majitel appky je odtud může smazat úplně.
 app.get("/api/admin/players", requireAdmin, async (req, res) => {

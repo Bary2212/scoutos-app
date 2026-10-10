@@ -11,6 +11,7 @@ import {
   ServerCrash,
 } from "lucide-react";
 import { apiFetch } from "../api.js";
+import UpcomingMatchesCard from "../components/UpcomingMatchesCard.jsx";
 import { useAuth } from "../AuthContext.jsx";
 
 
@@ -73,13 +74,6 @@ const fallbackConflicts = [
   },
 ];
 
-const fallbackMatches = [
-  { id: 1, date: "6. zář 2026", fixture: "Slavoj Karviná – FK Ostrov Bytom", suggestedScout: "Petr Novák", reason: "Nejblíž a už sledoval soupeře", assignedScout: "Petr Novák" },
-  { id: 2, date: "7. zář 2026", fixture: "Baník Karviná B – FC Silesia", suggestedScout: "Jana Bartošová", reason: "Specializace na středoevropský trh", assignedScout: "Jana Bartošová" },
-  { id: 3, date: "9. zář 2026", fixture: "Widzew Łódź – Górnik Zabrze", suggestedScout: "Karel Ryba", reason: "Jazyková znalost, blízkost", assignedScout: "Karel Ryba" },
-];
-
-const scouts = ["Petr Novák", "Jana Bartošová", "Karel Ryba"];
 
 const fallbackShortlistStages = [
   { stage: "Sledovaný", count: 14 },
@@ -115,11 +109,9 @@ function SectionLabel({ icon: Icon, children }) {
 export default function Dashboard() {
   const { user } = useAuth();
   const [conflicts, setConflicts] = useState(fallbackConflicts);
-  const [matches, setMatches] = useState(fallbackMatches);
   const [backendConnected, setBackendConnected] = useState(null);
   const [resolvedIds, setResolvedIds] = useState(new Set());
   const [selectedCell, setSelectedCell] = useState({ league: "Slovenská liga", position: "Útočníci" });
-  const [savingId, setSavingId] = useState(null);
   const [leagues, setLeagues] = useState(fallbackLeagues);
   const [positions, setPositions] = useState(fallbackPositions);
   const [coverage, setCoverage] = useState(fallbackCoverageData);
@@ -132,10 +124,6 @@ export default function Dashboard() {
   useEffect(() => {
     Promise.all([
       apiFetch(`/api/conflicts`).then((r) => {
-        if (!r.ok) throw new Error();
-        return r.json();
-      }),
-      apiFetch(`/api/matches`).then((r) => {
         if (!r.ok) throw new Error();
         return r.json();
       }),
@@ -152,9 +140,8 @@ export default function Dashboard() {
         return r.json();
       }),
     ])
-      .then(([conflictsData, matchesData, coverageData, stagesData, playersData]) => {
+      .then(([conflictsData, coverageData, stagesData, playersData]) => {
         setConflicts(conflictsData);
-        setMatches(matchesData);
         setLeagues(coverageData.leagues);
         setPositions(coverageData.positions);
         setCoverage(coverageData.data);
@@ -178,19 +165,6 @@ export default function Dashboard() {
 
   const resolveConflict = (playerId) => {
     setResolvedIds((prev) => new Set(prev).add(playerId));
-  };
-
-  const assignScout = (matchId, scoutName) => {
-    setMatches((prev) => prev.map((m) => (m.id === matchId ? { ...m, assignedScout: scoutName } : m)));
-    if (backendConnected === false) return; // bez backendu jen lokální náhled
-    setSavingId(matchId);
-    apiFetch(`/api/matches/${matchId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignedScout: scoutName }),
-    })
-      .catch(() => setBackendConnected(false))
-      .finally(() => setSavingId(null));
   };
 
   const activeConflicts = conflicts.filter((c) => !resolvedIds.has(c.playerId));
@@ -380,45 +354,7 @@ export default function Dashboard() {
           {/* ---------- Right column ---------- */}
           <div style={{ gridColumn: "span 12" }} className="md:col-span-5">
             {/* Upcoming matches */}
-            {user?.isDemoTeam && (
-            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22, marginBottom: 20 }}>
-              <SectionLabel icon={CalendarDays}>Nadcházející zápasy — koho poslat</SectionLabel>
-              {matches.length === 0 ? (
-                <div style={{ padding: "16px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
-                  Zatím nemáš naplánované žádné zápasy ke sledování.
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {matches.map((m) => {
-                    const overridden = m.assignedScout !== m.suggestedScout;
-                    return (
-                      <div key={m.id} style={{ border: `1px solid ${C.line}`, borderRadius: 6, padding: "12px 14px" }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{m.fixture}</div>
-                        <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>{m.date}</div>
-                        <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 6, fontStyle: "italic" }}>
-                          Návrh: {m.suggestedScout} — {m.reason}
-                        </div>
-                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                          <Users size={13} color={C.inkFaint} />
-                          <select
-                            value={m.assignedScout}
-                            onChange={(e) => assignScout(m.id, e.target.value)}
-                            style={{ fontSize: 12, padding: "5px 8px", border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, background: overridden ? C.amberSoft : "#fff" }}
-                          >
-                            {scouts.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
-                          {overridden && <span style={{ fontSize: 10, color: C.amber, fontWeight: 600 }}>upraveno</span>}
-                          {savingId === m.id && <span style={{ fontSize: 10, color: C.inkFaint }}>ukládám…</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            )}
+            <UpcomingMatchesCard />
 
             {/* Shortlist funnel */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22 }}>

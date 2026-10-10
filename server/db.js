@@ -168,6 +168,33 @@ ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS contract_until TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS agent TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS foot TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS height TEXT;
+
+-- Plánovač zápasů klubu: hlavní skaut naplánuje zápas a přidělí na něj skauty.
+CREATE TABLE IF NOT EXISTS club_matches (
+  id SERIAL PRIMARY KEY,
+  club_id INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+  kickoff TIMESTAMPTZ NOT NULL,
+  fixture TEXT NOT NULL,
+  competition TEXT NOT NULL DEFAULT '',
+  venue TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS club_matches_club_kickoff_idx ON club_matches (club_id, kickoff);
+CREATE TABLE IF NOT EXISTS club_match_scouts (
+  match_id INTEGER NOT NULL REFERENCES club_matches(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'prideleno',
+  decline_reason TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (match_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS club_match_players (
+  match_id INTEGER NOT NULL REFERENCES club_matches(id) ON DELETE CASCADE,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  PRIMARY KEY (match_id, player_id)
+);
 UPDATE players SET birth_year = EXTRACT(YEAR FROM now())::int - age WHERE birth_year IS NULL AND age IS NOT NULL;
 -- Appka už dřív běžela i bez sloupce share_token (veřejný odkaz na profil) —
 -- stejně bezpečně doplní i do existující produkční databáze.

@@ -16,6 +16,7 @@ import Shortlist from "./pages/Shortlist.jsx";
 import ComparePlayers from "./pages/ComparePlayers.jsx";
 import AdminOverview from "./pages/AdminOverview.jsx";
 import PublicPlayerProfile from "./pages/PublicPlayerProfile.jsx";
+import Matches from "./pages/Matches.jsx";
 
 const NAV = [
   { to: "/", label: "Dashboard" },
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/shortlist", label: "Shortlist" },
   { to: "/radar", label: "Radar hodnoty" },
   { to: "/pridat-hrace", label: "+ Přidat hráče" },
+  { to: "/zapasy", label: "Zápasy" },
   { to: "/klub", label: "Klub" },
 ];
 
@@ -131,6 +133,7 @@ function AppRoutes() {
       <Route path="/hrac/:id" element={<ProtectedRoute><PlayerProfile /></ProtectedRoute>} />
       <Route path="/hrac/:id/statistiky" element={<ProtectedRoute><PlayerStatsForm /></ProtectedRoute>} />
       <Route path="/tagovani" element={<ProtectedRoute><LiveTagging /></ProtectedRoute>} />
+      <Route path="/zapasy" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
       <Route path="/klub" element={<ProtectedRoute><Club /></ProtectedRoute>} />
       <Route path="/shortlist" element={<ProtectedRoute><Shortlist /></ProtectedRoute>} />
       <Route path="/porovnani" element={<ProtectedRoute><ComparePlayers /></ProtectedRoute>} />
