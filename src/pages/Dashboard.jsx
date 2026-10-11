@@ -117,6 +117,7 @@ export default function Dashboard() {
   const [coverage, setCoverage] = useState(fallbackCoverageData);
   const [coverageMode, setCoverageMode] = useState("percent");
   const [withoutLeague, setWithoutLeague] = useState(0);
+  const [onlyWatched, setOnlyWatched] = useState(true);
   const [shortlistStages, setShortlistStages] = useState(fallbackShortlistStages);
   const [playerCount, setPlayerCount] = useState(null);
   const [teamSize, setTeamSize] = useState(null);
@@ -169,9 +170,20 @@ export default function Dashboard() {
 
   const activeConflicts = conflicts.filter((c) => !resolvedIds.has(c.playerId));
   const isCount = coverageMode === "count";
+  // Skutečné účty: ve výchozím stavu se počítají jen pozice, které klub někde sleduje
+  // (aby slepé místo nevznikalo u pozic, které skaut vědomě nesleduje, např. brankáři).
+  const watchedPositions = positions.filter((p) => leagues.some((l) => (coverage[l]?.[p] ?? 0) > 0));
+  const shownPositions = isCount && onlyWatched && watchedPositions.length > 0 ? watchedPositions : positions;
   const blindSpots = leagues.flatMap((l) =>
-    positions.filter((p) => (isCount ? (coverage[l]?.[p] ?? 0) === 0 : coverage[l][p] < 25)).map((p) => `${l} – ${p}`)
+    shownPositions.filter((p) => (isCount ? (coverage[l]?.[p] ?? 0) === 0 : coverage[l][p] < 25)).map((p) => `${l} – ${p}`)
   );
+
+  // Vybraná buňka nesmí zůstat na skryté pozici.
+  useEffect(() => {
+    if (isCount && shownPositions.length > 0 && !shownPositions.includes(selectedCell.position)) {
+      setSelectedCell((c) => ({ ...c, position: shownPositions[0] }));
+    }
+  }, [onlyWatched, coverageMode, positions.join("|"), coverage]);
 
   const selectedPct = coverage[selectedCell.league]?.[selectedCell.position];
 
@@ -193,7 +205,7 @@ export default function Dashboard() {
           ) : (
             <StatCard label="Skauti v týmu" value={teamSize ?? "…"} sub={user?.role === "hlavni_skaut" ? "kolegy pozveš na stránce Klub" : "tvůj klub"} />
           )}
-          <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub={isCount ? "pozice bez hráče v sledovaných ligách" : "liga × pozice pod 25 %"} />
+          <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub={isCount ? "kombinací liga × pozice bez hráče" : "liga × pozice pod 25 %"} />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }} className="md:grid-cols-12">
@@ -202,6 +214,12 @@ export default function Dashboard() {
             {/* Coverage map */}
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 22, marginBottom: 20 }}>
               <SectionLabel icon={Map}>Mapa pokrytí (liga × pozice)</SectionLabel>
+              {isCount && leagues.length > 0 && (
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.inkSoft, margin: "0 0 12px", cursor: "pointer" }}>
+                  <input type="checkbox" checked={onlyWatched} onChange={(e) => setOnlyWatched(e.target.checked)} />
+                  Jen pozice, které sleduji (skryje pozice, kde nemáš nikoho)
+                </label>
+              )}
               {leagues.length === 0 ? (
                 <div style={{ padding: "24px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>
                   {isCount
@@ -217,7 +235,7 @@ export default function Dashboard() {
                       <thead>
                         <tr>
                           <th style={{ textAlign: "left", padding: "6px 8px", color: C.inkFaint, fontWeight: 500 }}></th>
-                          {positions.map((p) => (
+                          {shownPositions.map((p) => (
                             <th key={p} style={{ textAlign: "center", padding: "6px 8px", color: C.inkFaint, fontWeight: 500 }}>
                               {p}
                             </th>
@@ -228,7 +246,7 @@ export default function Dashboard() {
                         {leagues.map((l) => (
                           <tr key={l}>
                             <td style={{ padding: "6px 8px", color: C.inkSoft, whiteSpace: "nowrap" }}>{l}</td>
-                            {positions.map((p) => {
+                            {shownPositions.map((p) => {
                               const pct = coverage[l]?.[p] ?? 0;
                               const style = coverageColor(pct, coverageMode);
                               const isSelected = selectedCell.league === l && selectedCell.position === p;
