@@ -280,8 +280,8 @@ export default function PlayerProfileBasic() {
               ["Klub", player.club || "—"],
               ["Věk", player.age || "—"],
               ["Tržní hodnota", player.marketValue ? `${player.marketValue}M €` : "—"],
-              ["Kontrakt do", player.contractUntil || "—"],
-              ["Agent", player.agent || "—"],
+              ["Kontrakt do", (player.contractUntil && String(player.contractUntil).trim() !== "0" ? player.contractUntil : "—")],
+              ["Agent", (player.agent && String(player.agent).trim() !== "0" ? player.agent : "—")],
               ["Preferovaná noha", player.foot || "—"],
               ["Výška", player.height || "—"],
             ].map(([label, value]) => (

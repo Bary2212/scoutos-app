@@ -164,7 +164,7 @@ export default function PublicPlayerProfile() {
                     {riskLabelText(player.riskLevel)}
                   </span>
                 </div>
-                {player.contractUntil && (
+                {player.contractUntil && String(player.contractUntil).trim() !== "0" && (
                   <div>
                     <div style={{ fontSize: 11, color: C.inkFaint, marginBottom: 2 }}>Kontrakt do</div>
                     <div style={{ fontSize: 14 }}>{player.contractUntil}</div>

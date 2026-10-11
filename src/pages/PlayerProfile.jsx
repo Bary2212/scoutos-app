@@ -2207,8 +2207,8 @@ export default function PlayerProfile() {
               {[
                 ["Liga / soutěž", player.league || "—"],
                 ["Tržní hodnota", player.marketValue ? `${Number(player.marketValue).toFixed(1)}M €` : "—"],
-                ["Kontrakt do", player.contractUntil || "—"],
-                ["Agent", player.agent || "—"],
+                ["Kontrakt do", (player.contractUntil && String(player.contractUntil).trim() !== "0" ? player.contractUntil : "—")],
+                ["Agent", (player.agent && String(player.agent).trim() !== "0" ? player.agent : "—")],
                 ["Preferovaná noha", player.foot || "—"],
                 ["Výška", player.height ? (/^\d+$/.test(String(player.height).trim()) ? `${String(player.height).trim()} cm` : player.height) : "—"],
               ].map(([label, value]) => (
