@@ -39,7 +39,15 @@ export default function Login() {
   const [acceptTerms, setAcceptTerms] = useState(false);
 
   const [error, setError] = useState(null);
-  const [info, setInfo] = useState(null);
+  const [info, setInfo] = useState(() => {
+    try {
+      if (sessionStorage.getItem("scoutos_idle_logout")) {
+        sessionStorage.removeItem("scoutos_idle_logout");
+        return "Byl jsi automaticky odhlášen po 30 minutách nečinnosti. Přihlas se prosím znovu.";
+      }
+    } catch {}
+    return null;
+  });
   const [submitting, setSubmitting] = useState(false);
 
   const redirectTo = location.state?.from || "/";

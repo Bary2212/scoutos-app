@@ -3,6 +3,10 @@ import { API_BASE, getStoredUser, getToken, setSession, clearSession, apiFetch }
 
 const AuthContext = createContext(null);
 
+const IDLE_LIMIT_MS = 30 * 60 * 1000; // 30 minut
+const ACTIVITY_KEY = "scoutos_last_activity";
+const IDLE_FLAG = "scoutos_idle_logout";
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(getStoredUser());
 
@@ -25,6 +29,69 @@ export function AuthProvider({ children }) {
       })
       .catch(() => {});
   }, []);
+
+  // Automatické odhlášení po 30 minutách nečinnosti. Čas poslední aktivity je v localStorage,
+  // takže se počítá napříč kartami a funguje i po uspání notebooku nebo zavření prohlížeče.
+  useEffect(() => {
+    if (!user) return;
+    const read = () => {
+      try {
+        return Number(localStorage.getItem(ACTIVITY_KEY)) || 0;
+      } catch {
+        return 0;
+      }
+    };
+    const write = () => {
+      try {
+        localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+      } catch {}
+    };
+    const idleLogout = () => {
+      try {
+        sessionStorage.setItem(IDLE_FLAG, "1");
+      } catch {}
+      clearSession();
+      setUser(null);
+    };
+    const check = () => {
+      const last = read();
+      if (last && Date.now() - last > IDLE_LIMIT_MS) idleLogout();
+    };
+
+    check(); // např. po otevření appky po delší době
+    if (getToken()) write();
+
+    let lastWrite = Date.now();
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite > 5000) {
+        lastWrite = now;
+        write();
+      }
+    };
+    const events = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"];
+    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", check);
+    const timer = setInterval(check, 30 * 1000);
+
+    // Odhlášení v jiné kartě odhlásí i tuhle.
+    const onStorage = (e) => {
+      if (e.key === "scoutos_token" && !e.newValue) setUser(null);
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, onActivity));
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("storage", onStorage);
+      clearInterval(timer);
+    };
+  }, [user]);
 
   const login = async (email, password) => {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
