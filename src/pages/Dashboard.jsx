@@ -155,7 +155,16 @@ export default function Dashboard() {
         setPlayerCount(playersData.filter((p) => p.hasMyEvaluation).length);
         setBackendConnected(true);
       })
-      .catch(() => setBackendConnected(false));
+      .catch(() => {
+        // Ukázková data se při chybě servery zobrazují jen demo týmu — skutečný účet by je nikdy neměl vidět.
+        if (!user?.isDemoTeam) {
+          setConflicts([]);
+          setLeagues([]);
+          setCoverage({});
+          setShortlistStages([]);
+        }
+        setBackendConnected(false);
+      });
 
     // Počet skautů v klubu zná jen hlavní skaut (běžný skaut dostane jen základní info o klubu).
     apiFetch(`/api/club`)
@@ -168,6 +177,8 @@ export default function Dashboard() {
     setResolvedIds((prev) => new Set(prev).add(playerId));
   };
 
+  // Než dorazí odpověď ze serveru, nezobrazujeme žádná (ani ukázková) data — jinak by se na chvíli mihlo staré zobrazení.
+  const loading = backendConnected === null;
   const activeConflicts = conflicts.filter((c) => !resolvedIds.has(c.playerId));
   const isCount = coverageMode === "count";
   // Skutečné účty: ve výchozím stavu se počítají jen pozice, které klub někde sleduje
@@ -199,15 +210,18 @@ export default function Dashboard() {
         {/* ---------- Stat cards ---------- */}
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 28 }}>
           <StatCard label="Hráčů v tvém sledování" value={playerCount ?? "…"} />
-          <StatCard label="Otevřené rozpory" value={activeConflicts.length} color={activeConflicts.length > 0 ? C.amber : C.turf} sub="vyžadují rozhodnutí" />
+          <StatCard label="Otevřené rozpory" value={loading ? "…" : activeConflicts.length} color={loading ? C.inkFaint : activeConflicts.length > 0 ? C.amber : C.turf} sub="vyžadují rozhodnutí" />
           {user?.isDemoTeam ? (
             <StatCard label="Skauti v terénu tento týden" value="5 / 8" />
           ) : (
             <StatCard label="Skauti v týmu" value={teamSize ?? "…"} sub={user?.role === "hlavni_skaut" ? "kolegy pozveš na stránce Klub" : "tvůj klub"} />
           )}
-          <StatCard label="Slepá místa v pokrytí" value={blindSpots.length} color={blindSpots.length > 0 ? C.red : C.turf} sub={isCount ? "kombinací liga × pozice bez hráče" : "liga × pozice pod 25 %"} />
+          <StatCard label="Slepá místa v pokrytí" value={loading ? "…" : blindSpots.length} color={loading ? C.inkFaint : blindSpots.length > 0 ? C.red : C.turf} sub={loading ? " " : isCount ? "kombinací liga × pozice bez hráče" : "liga × pozice pod 25 %"} />
         </div>
 
+        {loading ? (
+          <div style={{ padding: "60px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>Načítám přehled…</div>
+        ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }} className="md:grid-cols-12">
           {/* ---------- Left column ---------- */}
           <div style={{ gridColumn: "span 12" }} className="md:col-span-7">
@@ -417,6 +431,7 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
