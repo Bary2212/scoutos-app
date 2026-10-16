@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
-import { Shield, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
+import LogoMark from "./components/Logo.jsx";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import PlayerProfile from "./pages/PlayerProfile.jsx";
@@ -74,7 +75,7 @@ function TopNav() {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Shield size={18} color="#2F6B4F" />
+          <LogoMark size={22} />
           <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, color: "#14201A" }}>
             ScoutOS
           </span>

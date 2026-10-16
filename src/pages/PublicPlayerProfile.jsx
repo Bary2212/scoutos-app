@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { Shield, AlertTriangle, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import LogoMark from "../components/Logo.jsx";
+import { AlertTriangle, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { ratingFromPercentile, ratingLabel } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
@@ -139,7 +140,7 @@ export default function PublicPlayerProfile() {
     <div style={{ background: C.bg, minHeight: "calc(100vh - 56px)", fontFamily: fontBody, color: C.ink }}>
       <div style={{ maxWidth: 820, margin: "0 auto", padding: "32px 20px 60px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 20, color: C.inkFaint, fontSize: 12 }}>
-          <Shield size={14} color={C.turf} />
+          <LogoMark size={16} color={C.turf} />
           Veřejný profil hráče — sdíleno ze ScoutOS
         </div>
 
