@@ -7,6 +7,14 @@ const IDLE_LIMIT_MS = 30 * 60 * 1000; // 30 minut
 const ACTIVITY_KEY = "scoutos_last_activity";
 const IDLE_FLAG = "scoutos_idle_logout";
 
+// Zapíše "teď" jako čas poslední aktivity. Volá se hned při přihlášení, aby starý čas z dřívějška
+// (např. po odhlášení nečinností) novou session okamžitě neodhlásil.
+function touchActivity() {
+  try {
+    localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
+  } catch {}
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(getStoredUser());
 
@@ -120,6 +128,7 @@ export function AuthProvider({ children }) {
       err.email = data.email;
       throw err;
     }
+    touchActivity();
     setSession(data.token, data.user);
     setUser(data.user);
     refreshUser();
@@ -157,6 +166,7 @@ export function AuthProvider({ children }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Ověření se nezdařilo.");
+    touchActivity();
     setSession(data.token, data.user);
     setUser(data.user);
     refreshUser();
@@ -175,6 +185,9 @@ export function AuthProvider({ children }) {
   };
 
   const logout = () => {
+    try {
+      localStorage.removeItem(ACTIVITY_KEY);
+    } catch {}
     clearSession();
     setUser(null);
   };
