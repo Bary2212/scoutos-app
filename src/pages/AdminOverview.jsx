@@ -90,6 +90,28 @@ function ClubRow({ club, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(false);
+  const [trialEndsAt, setTrialEndsAt] = useState(club.trialEndsAt || null);
+  const [trialBusy, setTrialBusy] = useState(false);
+
+  async function changeTrial(body) {
+    setTrialBusy(true);
+    try {
+      const r = await apiFetch(`/api/admin/clubs/${club.id}/trial`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error();
+      setTrialEndsAt((await r.json()).trialEndsAt || null);
+    } catch {
+      setError(true);
+    } finally {
+      setTrialBusy(false);
+    }
+  }
+
+  const trialLeftMs = trialEndsAt ? new Date(trialEndsAt).getTime() - Date.now() : null;
+  const trialDays = trialLeftMs === null ? null : Math.ceil(trialLeftMs / 86400000);
 
   const nameChanged = clubName.trim() !== club.name;
   const planChanged = plan !== club.plan || (note.trim() || "") !== (club.planNote || "");
@@ -143,6 +165,37 @@ function ClubRow({ club, onSaved }) {
       <td style={{ ...cell, textAlign: "right", fontFamily: fontMono }}>{club.evaluations}</td>
       <td style={{ ...cell, color: C.inkSoft }}>{fmtRelative(club.lastActivity)}</td>
       <td style={{ ...cell, color: C.inkSoft }}>{fmtDate(club.createdAt)}</td>
+      <td style={{ ...cell, whiteSpace: "nowrap" }}>
+        {club.plan === "paid" ? (
+          <span style={{ color: C.inkFaint }}>placený</span>
+        ) : trialEndsAt === null ? (
+          <span style={{ color: C.inkSoft }}>bez limitu</span>
+        ) : trialLeftMs < 0 ? (
+          <span style={{ color: C.red, fontWeight: 600 }}>skončila ({fmtDate(trialEndsAt)})</span>
+        ) : (
+          <span style={{ color: trialDays <= 3 ? C.amber || C.red : C.turf, fontWeight: 600 }}>zbývá {trialDays} d</span>
+        )}
+        {club.plan !== "paid" && (
+          <span style={{ marginLeft: 8 }}>
+            <button
+              onClick={() => changeTrial({ extendDays: 14 })}
+              disabled={trialBusy}
+              style={{ fontSize: 11, fontWeight: 600, padding: "3px 7px", borderRadius: 4, border: `1px solid ${C.line}`, background: "#fff", cursor: "pointer", marginRight: 4 }}
+            >
+              +14 dní
+            </button>
+            {trialEndsAt !== null && (
+              <button
+                onClick={() => changeTrial({ unlimited: true })}
+                disabled={trialBusy}
+                style={{ fontSize: 11, fontWeight: 600, padding: "3px 7px", borderRadius: 4, border: `1px solid ${C.line}`, background: "#fff", cursor: "pointer" }}
+              >
+                Bez limitu
+              </button>
+            )}
+          </span>
+        )}
+      </td>
       <td style={cell}>
         <select
           value={plan}
@@ -325,6 +378,7 @@ export default function AdminOverview() {
                     <th style={{ ...th, textAlign: "right" }}>Hodnocení</th>
                     <th style={th}>Poslední aktivita</th>
                     <th style={th}>Registrován</th>
+                    <th style={th}>Zkouška</th>
                     <th style={th}>Tarif</th>
                     <th style={th}>Poznámka</th>
                     <th style={th} />

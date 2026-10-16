@@ -34,6 +34,19 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// Zkušební doba nově registrovaných klubů (ve dnech).
+const TRIAL_DAYS = 14;
+
+// Stav zkušební doby klubu. Demo tým, majitel appky a placené kluby se zkouškou neomezují.
+function trialInfo(row) {
+  const ends = row.trial_ends_at ? new Date(row.trial_ends_at) : null;
+  const exempt = !!row.is_demo_team || isAdminEmail(row.email) || row.club_plan === "paid";
+  return {
+    trialEndsAt: !exempt && ends ? ends.toISOString() : null,
+    trialExpired: !exempt && !!ends && ends.getTime() < Date.now(),
+  };
+}
+
 function signToken(user) {
   return jwt.sign(
     { id: user.id, name: user.name, email: user.email, role: user.role, clubId: user.club_id, isDemoTeam: !!user.is_demo_team, isAdmin: isAdminEmail(user.email) },
@@ -158,6 +171,8 @@ app.post("/api/auth/register", async (req, res) => {
       // Bez pozvánkového kódu dostane nový účet rovnou svůj vlastní klub.
       const ownClub = await createClub(pool, `Klub – ${name}`, newUserId);
       await pool.query("UPDATE users SET club_id = $1 WHERE id = $2", [ownClub.id, newUserId]);
+      // Nový klub dostává zkušební dobu; kolegové pozvaní kódem ji sdílí s klubem.
+      await pool.query(`UPDATE clubs SET trial_ends_at = now() + interval '${TRIAL_DAYS} days' WHERE id = $1`, [ownClub.id]);
     }
 
     try {
@@ -339,11 +354,23 @@ app.use("/api", (req, res, next) => {
   // odebrání z klubu platily až po novém přihlášení (odebraný skaut by dál viděl
   // data původního klubu) a smazaný účet by dál fungoval do vypršení tokenu.
   pool
-    .query("SELECT id, name, email, role, club_id, is_demo_team FROM users WHERE id = $1", [decoded.id])
+    .query(
+      `SELECT u.id, u.name, u.email, u.role, u.club_id, u.is_demo_team, c.plan AS club_plan, c.trial_ends_at
+       FROM users u LEFT JOIN clubs c ON c.id = u.club_id WHERE u.id = $1`,
+      [decoded.id]
+    )
     .then(({ rows }) => {
       const u = rows[0];
       if (!u) return res.status(401).json({ error: "Účet už neexistuje, přihlas se prosím znovu." });
       req.user = { ...decoded, name: u.name, email: u.email, role: u.role, clubId: u.club_id, isDemoTeam: !!u.is_demo_team, isAdmin: isAdminEmail(u.email) };
+      Object.assign(req.user, trialInfo(u));
+      // Po vypršení zkušební doby je účet jen pro čtení: data zůstávají, ale zápis se zablokuje.
+      if (req.user.trialExpired && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+        return res.status(402).json({
+          error: "Zkušební doba tvého klubu skončila, účet je teď jen pro čtení. Napiš na info@baranstudio.cz a zkušební dobu prodloužíme.",
+          trialExpired: true,
+        });
+      }
       next();
     })
     .catch(() => res.status(500).json({ error: "Nepodařilo se ověřit přihlášení." }));
@@ -351,7 +378,11 @@ app.use("/api", (req, res, next) => {
 
 // Aktuální údaje přihlášeného uživatele (role, klub) — klient si je po načtení appky obnoví.
 app.get("/api/auth/me", (req, res) => {
-  res.json({ id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, clubId: req.user.clubId, isDemoTeam: !!req.user.isDemoTeam, isAdmin: !!req.user.isAdmin });
+  res.json({
+    id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role, clubId: req.user.clubId,
+    isDemoTeam: !!req.user.isDemoTeam, isAdmin: !!req.user.isAdmin,
+    trialEndsAt: req.user.trialEndsAt, trialExpired: !!req.user.trialExpired,
+  });
 });
 
 // ---------- ADMIN PŘEHLED MAJITELE APPKY — jen pro e-mail z ADMIN_EMAIL ----------
@@ -370,7 +401,7 @@ app.get("/api/admin/overview", requireAdmin, async (req, res) => {
     const totals = totalsRows[0];
 
     const { rows: clubRows } = await pool.query(`
-      SELECT c.id, c.name, COALESCE(MIN(u.created_at), c.created_at) AS created_at, c.plan, c.plan_note, c.plan_updated_at,
+      SELECT c.id, c.name, COALESCE(MIN(u.created_at), c.created_at) AS created_at, c.plan, c.plan_note, c.plan_updated_at, c.trial_ends_at,
              COUNT(u.id)::int AS scouts,
              (SELECT COUNT(*)::int FROM player_evaluations e JOIN users uu ON uu.id = e.user_id WHERE uu.club_id = c.id) AS evaluations,
              (SELECT MAX(e.updated_at) FROM player_evaluations e JOIN users uu ON uu.id = e.user_id WHERE uu.club_id = c.id) AS last_activity
@@ -415,6 +446,7 @@ app.get("/api/admin/overview", requireAdmin, async (req, res) => {
         plan: c.plan,
         planNote: c.plan_note,
         planUpdatedAt: c.plan_updated_at,
+        trialEndsAt: c.trial_ends_at,
         scouts: c.scouts,
         evaluations: c.evaluations,
         lastActivity: c.last_activity,
@@ -440,6 +472,30 @@ app.patch("/api/admin/clubs/:id/plan", requireAdmin, async (req, res) => {
     res.json({ id: rows[0].id, plan: rows[0].plan, planNote: rows[0].plan_note, planUpdatedAt: rows[0].plan_updated_at });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se uložit tarif.", detail: err.message });
+  }
+});
+
+// Zkušební doba klubu: prodloužit o N dní (od konce, nebo od dneška, pokud už skončila),
+// nebo zrušit omezení úplně (trial_ends_at = NULL).
+app.patch("/api/admin/clubs/:id/trial", requireAdmin, async (req, res) => {
+  try {
+    const { extendDays, unlimited } = req.body || {};
+    const id = Number(req.params.id);
+    let rows;
+    if (unlimited === true) {
+      ({ rows } = await pool.query("UPDATE clubs SET trial_ends_at = NULL WHERE id = $1 RETURNING id, trial_ends_at", [id]));
+    } else {
+      const days = Number(extendDays);
+      if (!Number.isInteger(days) || days < 1 || days > 365) return res.status(400).json({ error: "Neplatný počet dní." });
+      ({ rows } = await pool.query(
+        "UPDATE clubs SET trial_ends_at = GREATEST(now(), COALESCE(trial_ends_at, now())) + ($2 || ' days')::interval WHERE id = $1 RETURNING id, trial_ends_at",
+        [id, String(days)]
+      ));
+    }
+    if (!rows[0]) return res.status(404).json({ error: "Klub nenalezen." });
+    res.json({ id: rows[0].id, trialEndsAt: rows[0].trial_ends_at });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se upravit zkušební dobu.", detail: err.message });
   }
 });
 

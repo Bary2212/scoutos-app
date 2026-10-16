@@ -33,5 +33,9 @@ export function apiFetch(path, options = {}) {
   const token = getToken();
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(`${API_BASE}${path}`, { ...options, headers });
+  return fetch(`${API_BASE}${path}`, { ...options, headers }).then((res) => {
+    // Zkušební doba klubu skončila — server zápis odmítl (účet je jen pro čtení).
+    if (res.status === 402) window.dispatchEvent(new Event("scoutos:trial-expired"));
+    return res;
+  });
 }

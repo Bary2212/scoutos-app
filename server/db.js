@@ -73,6 +73,10 @@ ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
 ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan_note TEXT;
 ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan_updated_at TIMESTAMPTZ;
 
+-- Konec zkušební doby klubu. NULL = bez časového omezení (stávající kluby, demo, ručně odemčené).
+-- Placené kluby (plan = 'paid') se zkouškou neomezují.
+ALTER TABLE clubs ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   first_name TEXT,

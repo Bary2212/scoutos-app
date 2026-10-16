@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import { Shield, LogOut } from "lucide-react";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
@@ -121,6 +121,60 @@ function TopNav() {
   );
 }
 
+// Pruh pod horní lištou: zbývající dny zkušební doby, nebo upozornění, že účet je jen pro čtení.
+function TrialBanner() {
+  const { user } = useAuth();
+  const [expiredEvent, setExpiredEvent] = useState(false);
+  useEffect(() => {
+    const onExpired = () => setExpiredEvent(true);
+    window.addEventListener("scoutos:trial-expired", onExpired);
+    return () => window.removeEventListener("scoutos:trial-expired", onExpired);
+  }, []);
+  if (!user || (!user.trialEndsAt && !expiredEvent)) return null;
+
+  const msLeft = user.trialEndsAt ? new Date(user.trialEndsAt).getTime() - Date.now() : 0;
+  const expired = expiredEvent || user.trialExpired || msLeft <= 0;
+  const days = Math.max(0, Math.ceil(msLeft / 86400000));
+  const mail = "mailto:info@baranstudio.cz?subject=" + encodeURIComponent("ScoutOS – prodloužení zkušební doby");
+
+  let bg = "#E4EEE7";
+  let color = "#2F6B4F";
+  let text = `Zkušební verze: zbývá ${days} ${days === 1 ? "den" : days >= 2 && days <= 4 ? "dny" : "dní"}.`;
+  if (!expired && days <= 3) {
+    bg = "#F6EBD3";
+    color = "#8A5A12";
+    text = days === 0 ? "Zkušební verze dnes končí." : `Zkušební verze brzy končí: zbývá ${days} ${days === 1 ? "den" : "dny"}.`;
+  }
+  if (expired) {
+    bg = "#F5E5E2";
+    color = "#B23A2E";
+    text = "Zkušební doba skončila — účet je teď jen pro čtení. Data zůstávají, nic se nemaže.";
+  }
+  return (
+    <div style={{ background: bg, color, fontSize: 12.5, fontFamily: "'Inter', sans-serif", padding: "7px 20px", textAlign: "center" }}>
+      {text}{" "}
+      <a href={mail} style={{ color, fontWeight: 700 }}>
+        {expired || days <= 3 ? "Napiš nám a prodloužíme ji" : "Dotazy nebo zpětná vazba?"}
+      </a>
+    </div>
+  );
+}
+
+function SiteFooter() {
+  const { user } = useAuth();
+  if (!user) return null;
+  return (
+    <div style={{ textAlign: "center", fontSize: 11.5, color: "#8A9284", padding: "18px 20px 26px", fontFamily: "'Inter', sans-serif" }}>
+      Něco nefunguje nebo ti něco chybí? Napiš na{" "}
+      <a href="mailto:info@baranstudio.cz" style={{ color: "#2F6B4F", fontWeight: 600 }}>info@baranstudio.cz</a>
+      {" · "}
+      <Link to="/podminky" style={{ color: "#8A9284" }}>Podmínky použití</Link>
+      {" · "}
+      <Link to="/soukromi" style={{ color: "#8A9284" }}>Ochrana osobních údajů</Link>
+    </div>
+  );
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -150,7 +204,9 @@ export default function App() {
     <AuthProvider>
       <div>
         <TopNav />
+        <TrialBanner />
         <AppRoutes />
+        <SiteFooter />
       </div>
     </AuthProvider>
   );

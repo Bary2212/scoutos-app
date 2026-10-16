@@ -93,6 +93,20 @@ export function AuthProvider({ children }) {
     };
   }, [user]);
 
+  // Dotáhne aktuální údaje (role, klub, stav zkušební doby) ze serveru.
+  const refreshUser = () => {
+    const token = getToken();
+    if (!token) return Promise.resolve();
+    return apiFetch("/api/auth/me")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const fresh = await res.json();
+        setSession(token, fresh);
+        setUser(fresh);
+      })
+      .catch(() => {});
+  };
+
   const login = async (email, password) => {
     const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
@@ -108,6 +122,7 @@ export function AuthProvider({ children }) {
     }
     setSession(data.token, data.user);
     setUser(data.user);
+    refreshUser();
     return data.user;
   };
 
@@ -144,6 +159,7 @@ export function AuthProvider({ children }) {
     if (!res.ok) throw new Error(data.error || "Ověření se nezdařilo.");
     setSession(data.token, data.user);
     setUser(data.user);
+    refreshUser();
     return data.user;
   };
 
@@ -163,7 +179,7 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  return <AuthContext.Provider value={{ user, login, register, verify, resendCode, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, login, register, verify, resendCode, logout, refreshUser }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

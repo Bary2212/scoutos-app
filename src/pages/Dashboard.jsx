@@ -219,6 +219,29 @@ export default function Dashboard() {
           <StatCard label="Slepá místa v pokrytí" value={loading ? "…" : blindSpots.length} color={loading ? C.inkFaint : blindSpots.length > 0 ? C.red : C.turf} sub={loading ? " " : isCount ? "kombinací liga × pozice bez hráče" : "liga × pozice pod 25 %"} />
         </div>
 
+        {!loading && !user?.isDemoTeam && playerCount === 0 && (
+          <div style={{ background: C.panel, border: `1px solid ${C.turf}`, borderRadius: 6, padding: 22, marginBottom: 20 }}>
+            <div style={{ fontFamily: fontDisplay, fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Vítej ve ScoutOS 👋</div>
+            <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 14 }}>Začni třemi kroky, trvá to pár minut:</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {[
+                { n: 1, t: "Přidej prvního hráče", d: "Jméno, rok narození, klub a soutěž.", to: "/pridat-hrace", cta: "Přidat hráče" },
+                { n: 2, t: "Napiš hodnocení", d: "Na profilu hráče vyplň hodnocení a poznámky.", to: "/hledani", cta: "Najít hráče" },
+                user?.role === "hlavni_skaut"
+                  ? { n: 3, t: "Pozvi kolegy", d: "Pošli jim pozvánkový kód svého klubu.", to: "/klub", cta: "Otevřít Klub" }
+                  : { n: 3, t: "Plánuj zápasy", d: "Zápasy, na které tě pošle hlavní skaut.", to: "/zapasy", cta: "Zápasy" },
+              ].map((step) => (
+                <div key={step.n} style={{ flex: "1 1 220px", border: `1px solid ${C.line}`, borderRadius: 6, padding: 14 }}>
+                  <div style={{ fontFamily: fontMono, fontSize: 11, color: C.turf, fontWeight: 600, marginBottom: 4 }}>KROK {step.n}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{step.t}</div>
+                  <div style={{ fontSize: 12, color: C.inkSoft, marginBottom: 10 }}>{step.d}</div>
+                  <Link to={step.to} style={{ fontSize: 12, fontWeight: 600, color: C.turf, textDecoration: "none" }}>{step.cta} →</Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div style={{ padding: "60px 0", textAlign: "center", color: C.inkFaint, fontSize: 13 }}>Načítám přehled…</div>
         ) : (
