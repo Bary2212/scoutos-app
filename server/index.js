@@ -612,6 +612,60 @@ async function saveMatchRelations(matchId, scoutIds, playerIds) {
   }
 }
 
+
+// ---------- E-MAIL SKAUTOVI PŘI PŘIDĚLENÍ NA ZÁPAS ----------
+function escHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Pošle e-mail skautům, kteří byli na zápas NOVĚ přidělení. Nikdy neshodí požadavek — chyba e-mailu se jen zaloguje.
+async function notifyAssignedScouts(match, userIds, assignerName) {
+  try {
+    if (!userIds.length) return;
+    const { rows: users } = await pool.query("SELECT id, name, email FROM users WHERE id = ANY($1::int[]) AND verified", [userIds]);
+    const when = new Date(match.kickoff).toLocaleString("cs-CZ", {
+      timeZone: "Europe/Prague",
+      weekday: "long",
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const appUrl = (process.env.APP_URL || "").replace(/\/$/, "");
+    const link = appUrl ? `<p><a href="${escHtml(appUrl)}/zapasy">Otevřít zápasy ve ScoutOS</a></p>` : "";
+    const { rows: pl } = await pool.query(
+      "SELECT p.name FROM club_match_players mp JOIN players p ON p.id = mp.player_id WHERE mp.match_id = $1 ORDER BY p.name",
+      [match.id]
+    );
+    const players = pl.length ? `<p><strong>Koho sledovat:</strong> ${pl.map((x) => escHtml(x.name)).join(", ")}</p>` : "";
+    for (const u of users) {
+      try {
+        await sendMail({
+          to: u.email,
+          subject: `Nový zápas ke sledování: ${match.fixture}`,
+          html: `
+            <p>Ahoj ${escHtml(String(u.name || "").split(" ")[0])},</p>
+            <p>${escHtml(assignerName || "Hlavní skaut")} tě přidělil/a na zápas:</p>
+            <p style="font-size:18px"><strong>${escHtml(match.fixture)}</strong></p>
+            <p><strong>Kdy:</strong> ${escHtml(when)}</p>
+            ${match.competition ? `<p><strong>Soutěž:</strong> ${escHtml(match.competition)}</p>` : ""}
+            ${match.venue ? `<p><strong>Kde:</strong> ${escHtml(match.venue)}</p>` : ""}
+            ${players}
+            ${match.note ? `<p><strong>Poznámka:</strong> ${escHtml(match.note)}</p>` : ""}
+            <p>Ve ScoutOS můžeš zápas potvrdit, nebo odmítnout s důvodem.</p>
+            ${link}
+          `,
+        });
+      } catch (mailErr) {
+        console.error("Nepodařilo se odeslat e-mail o zápase:", mailErr.message);
+      }
+    }
+  } catch (err) {
+    console.error("Oznámení o zápase selhalo:", err.message);
+  }
+}
+
 app.get("/api/club-matches", async (req, res) => {
   try {
     res.json(await loadClubMatches(req));
@@ -650,6 +704,11 @@ app.post("/api/club-matches", async (req, res) => {
     );
     await saveMatchRelations(rows[0].id, d.scoutIds, d.playerIds);
     res.status(201).json({ id: rows[0].id });
+    notifyAssignedScouts(
+      { id: rows[0].id, kickoff: d.kickoff, fixture: d.fixture, competition: d.competition, venue: d.venue, note: d.note },
+      d.scoutIds.filter((id) => id !== req.user.id),
+      req.user.name
+    );
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se uložit zápas.", detail: err.message });
   }
@@ -672,8 +731,15 @@ app.patch("/api/club-matches/:id", async (req, res) => {
       "UPDATE club_matches SET kickoff = $1, fixture = $2, competition = $3, venue = $4, note = $5 WHERE id = $6",
       [d.kickoff, d.fixture, d.competition, d.venue, d.note, match.id]
     );
+    const { rows: before } = await pool.query("SELECT user_id FROM club_match_scouts WHERE match_id = $1", [match.id]);
+    const already = new Set(before.map((r) => r.user_id));
     await saveMatchRelations(match.id, d.scoutIds, d.playerIds);
     res.json({ id: match.id });
+    notifyAssignedScouts(
+      { id: match.id, kickoff: d.kickoff, fixture: d.fixture, competition: d.competition, venue: d.venue, note: d.note },
+      d.scoutIds.filter((id) => id !== req.user.id && !already.has(id)),
+      req.user.name
+    );
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se upravit zápas.", detail: err.message });
   }
