@@ -48,6 +48,9 @@ export default function AddPlayer() {
     agent: "",
     foot: "Pravá",
     height: "",
+    heightDate: "",
+    fatherHeight: "",
+    motherHeight: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -110,15 +113,18 @@ export default function AddPlayer() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Server odpověděl chybou.");
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(res.status === 400 && body.error ? body.error : "Server odpověděl chybou.");
+        }
         return res.json();
       })
       .then((created) => {
         navigate(`/hrac/${created.id}`);
       })
-      .catch(() => {
-        setError("Nepodařilo se uložit hráče. Běží backend na localhost:4000?");
+      .catch((err) => {
+        setError(err.message && err.message !== "Server odpověděl chybou." ? err.message : "Nepodařilo se uložit hráče. Běží backend na localhost:4000?");
         setSubmitting(false);
       });
   };
@@ -241,9 +247,27 @@ export default function AddPlayer() {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Výška</label>
-              <input style={inputStyle} value={form.height} onChange={update("height")} placeholder="181 cm" />
+              <label style={labelStyle}>Výška (cm)</label>
+              <input style={inputStyle} value={form.height} onChange={update("height")} placeholder="181" />
             </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+            <div>
+              <label style={labelStyle}>Datum měření výšky</label>
+              <input type="date" max={new Date().toISOString().slice(0, 10)} style={inputStyle} value={form.heightDate} onChange={update("heightDate")} />
+            </div>
+            <div>
+              <label style={labelStyle}>Výška otce (cm)</label>
+              <input type="number" min={120} max={230} style={inputStyle} value={form.fatherHeight} onChange={update("fatherHeight")} placeholder="182" />
+            </div>
+            <div>
+              <label style={labelStyle}>Výška matky (cm)</label>
+              <input type="number" min={120} max={230} style={inputStyle} value={form.motherHeight} onChange={update("motherHeight")} placeholder="168" />
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: C.inkFaint, marginTop: -10, marginBottom: 20 }}>
+            Výška se zapíše do historie měření, jen pokud vyplníš i datum. Údaje o výšce vidíš jen ty.
           </div>
 
           {error && (

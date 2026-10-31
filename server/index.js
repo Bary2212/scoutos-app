@@ -1220,8 +1220,45 @@ function scoresFromAnalytics(analytics, storedScores) {
   return s === null ? storedScores : { pressing: s, possession: s, defensive: s };
 }
 
+// Historie měření výšky: pole { id, date: "YYYY-MM-DD", cm }, nejnovější měření první.
+function normalizeHeightLog(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((m) => m && /^\d{4}-\d{2}-\d{2}$/.test(String(m.date)) && Number.isFinite(Number(m.cm)))
+    .map((m) => ({ id: String(m.id), date: String(m.date), cm: Math.round(Number(m.cm)) }))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
+// Výška v cm z formuláře: "181", "181 cm", "181,5" -> celé číslo 80–230, jinak null.
+function parseHeightCm(value) {
+  const m = String(value ?? "").replace(",", ".").match(/\d+(\.\d+)?/);
+  if (!m) return null;
+  const cm = Math.round(Number(m[0]));
+  return cm >= 80 && cm <= 230 ? cm : null;
+}
+
+// Datum měření (YYYY-MM-DD, nesmí být v budoucnosti) nebo null.
+function parseMeasureDate(value) {
+  const s = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) return null;
+  if (s > new Date().toISOString().slice(0, 10)) return null;
+  if (s < "1990-01-01") return null;
+  return s;
+}
+
+// Výška rodiče v cm: prázdné = null (smazat), platné číslo 120–230, nebo undefined = neplatné.
+function parseParentHeight(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const n = Math.round(Number(String(value).replace(",", ".")));
+  return Number.isFinite(n) && n >= 120 && n <= 230 ? n : undefined;
+}
+
 function playerRowToApi(p, evaluation, viewer) {
   const hasMyEvaluation = !!evaluation;
+  const heightLog = hasMyEvaluation ? normalizeHeightLog(evaluation.height_log) : [];
+  const latestMeasure = heightLog[0] || null;
   return {
     ...(viewer ? { canEditIdentity: canEditPlayerIdentity(p, viewer) } : {}),
     id: p.id,
@@ -1235,7 +1272,15 @@ function playerRowToApi(p, evaluation, viewer) {
     contractUntil: evaluation?.contract_until ?? p.contract_until,
     agent: evaluation?.agent ?? p.agent,
     foot: evaluation?.foot ?? p.foot,
-    height: evaluation?.height ?? p.height,
+    // Nejnovější zapsané měření má přednost před ručně psaným textem.
+    height: latestMeasure ? String(latestMeasure.cm) : evaluation?.height ?? p.height,
+    heightMeasuredAt: latestMeasure ? latestMeasure.date : null,
+    heightLog,
+    fatherHeight: hasMyEvaluation ? evaluation.father_height ?? null : null,
+    motherHeight: hasMyEvaluation ? evaluation.mother_height ?? null : null,
+    closedOutcome: hasMyEvaluation ? evaluation.closed_outcome ?? null : null,
+    closedReason: hasMyEvaluation ? evaluation.closed_reason ?? null : null,
+    closedAt: hasMyEvaluation ? evaluation.closed_at ?? null : null,
     hasMyEvaluation,
     marketValue: hasMyEvaluation ? Number(evaluation.market_value) : 0,
     minutesTracked: hasMyEvaluation ? evaluation.minutes_tracked : 0,
@@ -1256,10 +1301,17 @@ async function getMyEvaluation(playerId, userId) {
   return rows[0] || null;
 }
 
-// GET /api/players?category=&maxAge=&maxBudget=&style=
+// Celkové skóre hráče = průměr tří uložených skóre (parametr "style" z dřívější
+// "filozofie klubu" už se nepoužívá — u ručně zadaných hráčů byla všechna tři stejná).
+function overallScore(scores) {
+  const vals = [scores?.pressing, scores?.possession, scores?.defensive].map(Number).filter(Number.isFinite);
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+}
+
+// GET /api/players?category=&maxAge=&maxBudget=
 app.get("/api/players", async (req, res) => {
   try {
-    const { category = "Vše", maxAge = 99, maxBudget = 999, style = "pressing" } = req.query;
+    const { category = "Vše", maxAge = 99, maxBudget = 999 } = req.query;
     const { rows: players } = await pool.query("SELECT * FROM players ORDER BY id");
     const { rows: evals } = await pool.query("SELECT * FROM player_evaluations WHERE user_id = $1", [req.user.id]);
     const evalByPlayerId = Object.fromEntries(evals.map((e) => [e.player_id, e]));
@@ -1272,7 +1324,7 @@ app.get("/api/players", async (req, res) => {
       .filter((p) => (category === "Vše" ? true : categoryOf(p.position) === category))
       .filter((p) => (p.age ?? 0) <= Number(maxAge))
       .filter((p) => p.marketValue <= Number(maxBudget))
-      .sort((a, b) => (b.scores?.[style] ?? 0) - (a.scores?.[style] ?? 0));
+      .sort((a, b) => overallScore(b.scores) - overallScore(a.scores));
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst hráče.", detail: err.message });
@@ -1298,8 +1350,15 @@ app.get("/api/players/search", async (req, res) => {
 
 app.post("/api/players", async (req, res) => {
   try {
-    const { name, position, age, birthYear, club, league, marketValue, contractUntil, agent, foot, height } = req.body;
+    const { name, position, age, birthYear, club, league, marketValue, contractUntil, agent, foot, height, heightDate, fatherHeight, motherHeight } = req.body;
     if (!name || !position) return res.status(400).json({ error: "Chybí jméno nebo pozice." });
+    const father = parseParentHeight(fatherHeight);
+    const mother = parseParentHeight(motherHeight);
+    if (father === undefined || mother === undefined) return res.status(400).json({ error: "Výška rodiče musí být v cm (120–230)." });
+    // Výška zadaná s datem měření se rovnou uloží jako první záznam historie měření.
+    const firstCm = parseHeightCm(height);
+    const firstDate = parseMeasureDate(heightDate);
+    const heightLog = firstCm && firstDate ? [{ id: crypto.randomBytes(6).toString("hex"), date: firstDate, cm: firstCm }] : [];
     const by = parseBirthYear(birthYear);
     const ageValue = by ? new Date().getFullYear() - by : Number(age) || null;
 
@@ -1307,15 +1366,15 @@ app.post("/api/players", async (req, res) => {
       `INSERT INTO players (owner_id, is_shared_demo, name, position, age, birth_year, club, contract_until, agent, foot, height, league)
        VALUES ($1,false,$2,$3,$4,$10,$5,$6,$7,$8,$9,$11)
        RETURNING *`,
-      [req.user.id, name, position, ageValue, club || "", contractUntil || "", agent || "", foot || "", height || "", by, String(league || "").trim().slice(0, 80)]
+      [req.user.id, name, position, ageValue, club || "", contractUntil || "", agent || "", foot || "", heightLog.length ? "" : height || "", by, String(league || "").trim().slice(0, 80)]
     );
     const player = rows[0];
 
     const { rows: evalRows } = await pool.query(
-      `INSERT INTO player_evaluations (player_id, user_id, market_value, scores, reason)
-       VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO player_evaluations (player_id, user_id, market_value, scores, reason, height_log, father_height, mother_height)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)
        RETURNING *`,
-      [player.id, req.user.id, parseMoney(marketValue), JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
+      [player.id, req.user.id, parseMoney(marketValue), JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON), JSON.stringify(heightLog), father, mother]
     );
     res.status(201).json(playerRowToApi(player, evalRows[0], req.user));
   } catch (err) {
@@ -1475,6 +1534,13 @@ app.patch("/api/players/:id", async (req, res) => {
       evSets.push(`market_value = $${j++}`);
       evValues.push(parseMoney(req.body.marketValue));
     }
+    for (const [bodyField, column] of [["fatherHeight", "father_height"], ["motherHeight", "mother_height"]]) {
+      if (req.body[bodyField] === undefined) continue;
+      const parsed = parseParentHeight(req.body[bodyField]);
+      if (parsed === undefined) return res.status(400).json({ error: "Výška rodiče musí být v cm (120–230)." });
+      evSets.push(`${column} = $${j++}`);
+      evValues.push(parsed);
+    }
 
     let evaluation = await getMyEvaluation(player.id, req.user.id);
     if (evSets.length > 0) {
@@ -1495,6 +1561,52 @@ app.patch("/api/players/:id", async (req, res) => {
     res.json(playerRowToApi(updatedPlayer, evaluation, req.user));
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se upravit hráče.", detail: err.message });
+  }
+});
+
+// ---- Historie měření výšky (soukromá, u mého hodnocení) ----
+async function ensureMyEvaluation(playerId, userId) {
+  await pool.query(
+    `INSERT INTO player_evaluations (player_id, user_id, scores, reason) VALUES ($1,$2,$3,$4) ON CONFLICT (player_id, user_id) DO NOTHING`,
+    [playerId, userId, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON)]
+  );
+  return getMyEvaluation(playerId, userId);
+}
+
+app.post("/api/players/:id/height-log", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    const { rows } = await pool.query("SELECT id, is_shared_demo FROM players WHERE id = $1", [playerId]);
+    if (!rows[0]) return res.status(404).json({ error: "Hráč nenalezen." });
+    const cm = parseHeightCm(req.body.cm);
+    const date = parseMeasureDate(req.body.date);
+    if (!cm) return res.status(400).json({ error: "Zadej výšku v cm (80–230)." });
+    if (!date) return res.status(400).json({ error: "Zadej platné datum měření (ne v budoucnosti)." });
+
+    const evaluation = await ensureMyEvaluation(playerId, req.user.id);
+    const log = normalizeHeightLog(evaluation.height_log);
+    if (log.length >= 60) return res.status(400).json({ error: "Maximálně 60 měření u jednoho hráče." });
+    log.push({ id: crypto.randomBytes(6).toString("hex"), date, cm });
+    const { rows: updated } = await pool.query(
+      "UPDATE player_evaluations SET height_log = $1::jsonb, updated_at = now() WHERE id = $2 RETURNING *",
+      [JSON.stringify(log), evaluation.id]
+    );
+    res.status(201).json({ heightLog: normalizeHeightLog(updated[0].height_log), height: String(normalizeHeightLog(updated[0].height_log)[0].cm) });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se uložit měření.", detail: err.message });
+  }
+});
+
+app.delete("/api/players/:id/height-log/:entryId", async (req, res) => {
+  try {
+    const playerId = Number(req.params.id);
+    const evaluation = await getMyEvaluation(playerId, req.user.id);
+    if (!evaluation) return res.json({ heightLog: [], height: null });
+    const log = normalizeHeightLog(evaluation.height_log).filter((m) => m.id !== req.params.entryId);
+    await pool.query("UPDATE player_evaluations SET height_log = $1::jsonb, updated_at = now() WHERE id = $2", [JSON.stringify(log), evaluation.id]);
+    res.json({ heightLog: log, height: log[0] ? String(log[0].cm) : evaluation.height ?? null });
+  } catch (err) {
+    res.status(500).json({ error: "Nepodařilo se smazat měření.", detail: err.message });
   }
 });
 
@@ -1991,7 +2103,7 @@ app.get("/api/shortlist-stages", async (req, res) => {
 app.get("/api/shortlist", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, COALESCE(e.position, p.position) AS position, p.age, p.birth_year, COALESCE(e.club, p.club) AS club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level, e.analytics
+      `SELECT p.id, p.name, COALESCE(e.position, p.position) AS position, p.age, p.birth_year, COALESCE(e.club, p.club) AS club, e.pipeline_stage AS stage, e.market_value, e.scores, e.risk_level, e.analytics, e.closed_outcome, e.closed_reason, e.closed_at
        FROM player_evaluations e JOIN players p ON p.id = e.player_id
        WHERE e.user_id = $1 AND e.pipeline_stage IS NOT NULL
        ORDER BY p.name`,
@@ -2003,6 +2115,9 @@ app.get("/api/shortlist", async (req, res) => {
         id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club,
         marketValue: Number(r.market_value), scores: r.scores, riskLevel: r.risk_level,
         topMetrics: topMetricsFromBreakdown(r.analytics?.breakdown),
+        closedOutcome: r.stage === "Uzavřeno" ? r.closed_outcome ?? null : null,
+        closedReason: r.stage === "Uzavřeno" ? r.closed_reason ?? null : null,
+        closedAt: r.stage === "Uzavřeno" ? r.closed_at ?? null : null,
       });
     }
     res.json(board);
@@ -2023,13 +2138,27 @@ app.patch("/api/players/:id/stage", async (req, res) => {
     const { rows } = await pool.query("SELECT id FROM players WHERE id = $1", [playerId]);
     if (!rows[0]) return res.status(404).json({ error: "Hráč nenalezen." });
 
+    // Uzavření hráče vyžaduje výsledek (pozitivně/negativně) a důvod. Při přesunu
+    // do jiné fáze (nebo odebrání ze shortlistu) se uzavření smaže.
+    let outcome = null;
+    let reason = null;
+    if (stage === "Uzavřeno") {
+      outcome = req.body.outcome;
+      reason = String(req.body.reason ?? "").trim().slice(0, 500);
+      if (outcome !== "positive" && outcome !== "negative") {
+        return res.status(400).json({ error: "Uzavření vyžaduje výsledek: positive nebo negative." });
+      }
+      if (!reason) return res.status(400).json({ error: "Uzavření vyžaduje důvod." });
+    }
+
     await pool.query(
-      `INSERT INTO player_evaluations (player_id, user_id, scores, reason, pipeline_stage)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (player_id, user_id) DO UPDATE SET pipeline_stage = $5, updated_at = now()`,
-      [playerId, req.user.id, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON), stage]
+      `INSERT INTO player_evaluations (player_id, user_id, scores, reason, pipeline_stage, closed_outcome, closed_reason, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, CASE WHEN $6::text IS NULL THEN NULL ELSE now() END)
+       ON CONFLICT (player_id, user_id) DO UPDATE SET pipeline_stage = $5, closed_outcome = $6, closed_reason = $7,
+         closed_at = CASE WHEN $6::text IS NULL THEN NULL ELSE now() END, updated_at = now()`,
+      [playerId, req.user.id, JSON.stringify(EMPTY_SCORES), JSON.stringify(EMPTY_REASON), stage, outcome, reason]
     );
-    res.json({ pipelineStage: stage });
+    res.json({ pipelineStage: stage, closedOutcome: outcome, closedReason: reason });
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se upravit shortlist.", detail: err.message });
   }

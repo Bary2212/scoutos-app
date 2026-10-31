@@ -25,11 +25,19 @@ const fontDisplay = "'Space Grotesk', sans-serif";
 const fontBody = "'Inter', sans-serif";
 const fontMono = "'IBM Plex Mono', monospace";
 
-const STYLES = [
-  { id: "pressing", label: "Presink" },
-  { id: "possession", label: "Držení míče" },
-  { id: "defensive", label: "Defenzivní blok" },
-];
+const SCORE_KEYS = ["pressing", "possession", "defensive"];
+
+// Celkové skóre = průměr tří uložených skóre (u ručně zadaných hráčů jsou stejná).
+function overallScore(p) {
+  const vals = SCORE_KEYS.map((k) => Number(p.scores?.[k])).filter(Number.isFinite);
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+}
+
+// Důvod hodnocení: bere se z nejsilnější oblasti hráče.
+function topReason(p) {
+  const best = [...SCORE_KEYS].sort((a, b) => (p.scores?.[b] ?? 0) - (p.scores?.[a] ?? 0))[0];
+  return p.reason?.[best] || "";
+}
 
 const POSITION_CATEGORIES = ["Vše", "Brankáři", "Obránci", "Záložníci", "Útočníci"];
 
@@ -69,33 +77,7 @@ function scoreColor(score) {
   return C.red;
 }
 
-function StyleSwitch({ active, onChange }) {
-  return (
-    <div style={{ display: "inline-flex", border: `1px solid ${C.line}`, borderRadius: 5, overflow: "hidden" }}>
-      {STYLES.map((s) => (
-        <button
-          key={s.id}
-          onClick={() => onChange(s.id)}
-          style={{
-            padding: "6px 12px",
-            fontFamily: fontBody,
-            fontSize: 12,
-            fontWeight: 600,
-            border: "none",
-            cursor: "pointer",
-            color: active === s.id ? "#fff" : C.inkSoft,
-            background: active === s.id ? C.turf : "#fff",
-          }}
-        >
-          {s.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export default function PlayerSearch() {
-  const [style, setStyle] = useState("pressing");
   const [category, setCategory] = useState("Vše");
   const [maxAge, setMaxAge] = useState(30);
   const [minAge, setMinAge] = useState(14);
@@ -112,7 +94,7 @@ export default function PlayerSearch() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams({ category, maxAge, maxBudget, style });
+    const params = new URLSearchParams({ category, maxAge, maxBudget });
     apiFetch(`/api/players?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error("Server odpověděl chybou.");
@@ -121,7 +103,7 @@ export default function PlayerSearch() {
       .then((data) => setResults(data))
       .catch(() => setError("Nepodařilo se připojit k serveru na localhost:4000."))
       .finally(() => setLoading(false));
-  }, [style, category, maxAge, maxBudget]);
+  }, [category, maxAge, maxBudget]);
 
   // Textové hledání a doplňkové filtry běží v prohlížeči nad výsledky ze serveru.
   const q = norm(query.trim());
@@ -133,7 +115,7 @@ export default function PlayerSearch() {
     .sort((a, b) => {
       if (sortBy === "age") return (a.age ?? 99) - (b.age ?? 99);
       if (sortBy === "name") return surnameKey(a.name).localeCompare(surnameKey(b.name));
-      return (b.hasMyEvaluation ? b.scores[style] : -1) - (a.hasMyEvaluation ? a.scores[style] : -1);
+      return (b.hasMyEvaluation ? overallScore(b) : -1) - (a.hasMyEvaluation ? overallScore(a) : -1);
     });
 
   return (
@@ -201,10 +183,6 @@ export default function PlayerSearch() {
               />
             </div>
             <div>
-              <label style={labelStyle}>Filozofie klubu</label>
-              <StyleSwitch active={style} onChange={setStyle} />
-            </div>
-            <div>
               <label style={labelStyle}>Řadit podle</label>
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={inputStyle}>
                 {SORT_OPTIONS.map((o) => (<option key={o.id} value={o.id}>{o.label}</option>))}
@@ -216,7 +194,7 @@ export default function PlayerSearch() {
         <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 10 }}>
           {loading
             ? "Načítám…"
-            : `${visible.length} ${visible.length === 1 ? "hráč odpovídá" : "hráčů odpovídá"} filtru${sortBy === "score" ? ", seřazeno podle skóre pro zvolenou filozofii (nehodnocení na konci)" : ""}`}
+            : `${visible.length} ${visible.length === 1 ? "hráč odpovídá" : "hráčů odpovídá"} filtru${sortBy === "score" ? ", seřazeno podle skóre (nehodnocení na konci)" : ""}`}
         </div>
 
         {error && (
@@ -234,7 +212,7 @@ export default function PlayerSearch() {
         {/* ---------- Results ---------- */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {visible.map((p, i) => {
-            const score = p.scores[style];
+            const score = overallScore(p);
             const isExpanded = expanded === p.id;
             return (
               <div key={p.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: "14px 18px" }}>
@@ -294,7 +272,7 @@ export default function PlayerSearch() {
                 </div>
                 {isExpanded && p.hasMyEvaluation && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.lineSoft}`, fontSize: 13, color: C.inkSoft }}>
-                    Proč: {p.reason[style]}.
+                    Proč: {topReason(p)}.
                   </div>
                 )}
               </div>

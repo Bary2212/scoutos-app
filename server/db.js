@@ -176,6 +176,16 @@ ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS agent TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS foot TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS height TEXT;
 
+-- Historie měření výšky (každé měření = datum + cm), výška rodičů a uzavření hráče na
+-- shortlistu (pozitivně/negativně + důvod). Vše je SOUKROMÉ u hodnocení konkrétního
+-- skauta, stejně jako ostatní měnící se údaje výše.
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS height_log JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS father_height INTEGER;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS mother_height INTEGER;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS closed_outcome TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS closed_reason TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
+
 -- Plánovač zápasů klubu: hlavní skaut naplánuje zápas a přidělí na něj skauty.
 CREATE TABLE IF NOT EXISTS club_matches (
   id SERIAL PRIMARY KEY,

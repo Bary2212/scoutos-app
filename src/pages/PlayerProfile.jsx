@@ -45,6 +45,12 @@ const emptyPlayer = {
   agent: "",
   minutesTracked: 0,
   riskLevel: "low",
+  heightLog: [],
+  heightMeasuredAt: null,
+  fatherHeight: null,
+  motherHeight: null,
+  closedOutcome: null,
+  closedReason: null,
 };
 
 // ---- Design tokens -------------------------------------------------
@@ -908,6 +914,41 @@ export default function PlayerProfile() {
       body: JSON.stringify({ stage: nextShortlisted ? "Sledovaný" : null }),
     }).catch(() => setShortlisted((s) => !s)); // při chybě vrátit zpět
   };
+  // ---- Historie měření výšky ----
+  const [heightForm, setHeightForm] = useState({ date: new Date().toISOString().slice(0, 10), cm: "" });
+  const [heightSaving, setHeightSaving] = useState(false);
+  const [heightError, setHeightError] = useState(null);
+  const addMeasurement = (e) => {
+    e.preventDefault();
+    setHeightSaving(true);
+    setHeightError(null);
+    apiFetch(`/api/players/${id}/height-log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(heightForm),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || "Měření se nepodařilo uložit.");
+        return body;
+      })
+      .then((body) => {
+        setPlayer((p) => ({ ...p, heightLog: body.heightLog, height: body.height, heightMeasuredAt: body.heightLog[0]?.date ?? null }));
+        setHeightForm((f) => ({ ...f, cm: "" }));
+      })
+      .catch((err) => setHeightError(err.message || "Měření se nepodařilo uložit."))
+      .finally(() => setHeightSaving(false));
+  };
+  const deleteMeasurement = (entryId) => {
+    apiFetch(`/api/players/${id}/height-log/${entryId}`, { method: "DELETE" })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((body) =>
+        setPlayer((p) => ({ ...p, heightLog: body.heightLog, height: body.height || "", heightMeasuredAt: body.heightLog[0]?.date ?? null }))
+      )
+      .catch(() => setHeightError("Měření se nepodařilo smazat."));
+  };
+  const formatDate = (iso) => (iso ? iso.split("-").reverse().map((x, i) => (i < 2 ? String(Number(x)) : x)).join(". ") : "");
+
   const [shareUrl, setShareUrl] = useState(null);
   const [sharingLoading, setSharingLoading] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -1024,6 +1065,12 @@ export default function PlayerProfile() {
           agent: data.agent || "",
           minutesTracked: data.minutesTracked || 0,
           riskLevel: data.riskLevel || "low",
+          heightLog: data.heightLog || [],
+          heightMeasuredAt: data.heightMeasuredAt || null,
+          fatherHeight: data.fatherHeight ?? null,
+          motherHeight: data.motherHeight ?? null,
+          closedOutcome: data.closedOutcome || null,
+          closedReason: data.closedReason || null,
         });
         setShortlisted(!!data.pipelineStage);
         setBreakdown(data.breakdown || []);
@@ -1219,6 +1266,8 @@ export default function PlayerProfile() {
       agent: player.agent || "",
       foot: player.foot || "",
       height: player.height || "",
+      fatherHeight: player.fatherHeight ?? "",
+      motherHeight: player.motherHeight ?? "",
     });
     setEditError(null);
     setEditing(true);
@@ -1485,17 +1534,19 @@ export default function PlayerProfile() {
                   ["contractUntil", "Kontrakt do"],
                   ["agent", "Agent"],
                   ["foot", "Preferovaná noha"],
-                  ["height", "Výška"],
+                  ["height", "Výška (cm)"],
+                  ["fatherHeight", "Výška otce (cm)"],
+                  ["motherHeight", "Výška matky (cm)"],
                 ].map(([field, label]) => (
                   <div key={field}>
                     <label style={{ display: "block", fontSize: 11, color: C.inkFaint, marginBottom: 4, fontWeight: 600 }}>{label}</label>
                     <input
                       list={field === "league" ? "liga-navrhy" : undefined}
-                      disabled={(field === "name" || field === "birthYear") && player.canEditIdentity === false}
-                      title={(field === "name" || field === "birthYear") && player.canEditIdentity === false ? "Jméno a rok narození může měnit jen skaut, který hráče založil." : undefined}
+                      disabled={((field === "name" || field === "birthYear") && player.canEditIdentity === false) || (field === "height" && player.heightLog?.length > 0)}
+                      title={(field === "name" || field === "birthYear") && player.canEditIdentity === false ? "Jméno a rok narození může měnit jen skaut, který hráče založil." : field === "height" && player.heightLog?.length > 0 ? "Výška se bere z posledního zapsaného měření (viz Měření výšky)." : undefined}
                       value={editForm[field]}
                       onChange={(e) => setEditForm((f) => ({ ...f, [field]: e.target.value }))}
-                      style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody, background: (field === "name" || field === "birthYear") && player.canEditIdentity === false ? "#F0F1EC" : "#fff" }}
+                      style={{ width: "100%", padding: "7px 9px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody, background: ((field === "name" || field === "birthYear") && player.canEditIdentity === false) || (field === "height" && player.heightLog?.length > 0) ? "#F0F1EC" : "#fff" }}
                     />
                   </div>
                 ))}
@@ -2195,6 +2246,23 @@ export default function PlayerProfile() {
 
           {/* ---------- Sidebar ---------- */}
           <div style={{ gridColumn: "span 12" }} className="md:col-span-4">
+            {player.closedOutcome && (
+              <div
+                style={{
+                  background: player.closedOutcome === "positive" ? C.turfSoft : C.redSoft,
+                  border: `1px solid ${player.closedOutcome === "positive" ? C.turf : C.red}`,
+                  borderRadius: 6,
+                  padding: "12px 16px",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: player.closedOutcome === "positive" ? C.turf : C.red }}>
+                  Shortlist: uzavřeno {player.closedOutcome === "positive" ? "pozitivně" : "negativně"}
+                </div>
+                {player.closedReason && <div style={{ fontSize: 13, color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{player.closedReason}</div>}
+              </div>
+            )}
+
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <SectionLabel>Rychlé info</SectionLabel>
@@ -2211,6 +2279,9 @@ export default function PlayerProfile() {
                 ["Agent", (player.agent && String(player.agent).trim() !== "0" ? player.agent : "—")],
                 ["Preferovaná noha", player.foot || "—"],
                 ["Výška", player.height ? (/^\d+$/.test(String(player.height).trim()) ? `${String(player.height).trim()} cm` : player.height) : "—"],
+                ...(player.heightMeasuredAt ? [["Měřeno", formatDate(player.heightMeasuredAt)]] : []),
+                ["Výška otce", player.fatherHeight ? `${player.fatherHeight} cm` : "—"],
+                ["Výška matky", player.motherHeight ? `${player.motherHeight} cm` : "—"],
               ].map(([label, value]) => (
                 <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
                   <span style={{ color: C.inkFaint }}>{label}</span>
@@ -2223,6 +2294,66 @@ export default function PlayerProfile() {
                   <span style={{ fontSize: 12, color: C.inkSoft }}>Vysoká jistota dat ({player.minutesTracked} min sledováno)</span>
                 </div>
               )}
+            </div>
+
+            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
+              <SectionLabel>Měření výšky</SectionLabel>
+              {player.heightLog?.length > 0 ? (
+                <div style={{ marginTop: 6 }}>
+                  {player.heightLog.map((m, idx) => (
+                    <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                      <span style={{ color: C.inkFaint }}>{formatDate(m.date)}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: idx === 0 ? 700 : 500, color: C.ink }}>{m.cm} cm</span>
+                        {player.heightLog[idx + 1] && (
+                          <span style={{ fontSize: 11, color: C.inkFaint }}>
+                            {m.cm - player.heightLog[idx + 1].cm >= 0 ? "+" : ""}
+                            {m.cm - player.heightLog[idx + 1].cm} cm
+                          </span>
+                        )}
+                        <button
+                          onClick={() => deleteMeasurement(m.id)}
+                          title="Smazat měření"
+                          style={{ background: "none", border: "none", cursor: "pointer", color: C.inkFaint, padding: 2, display: "flex" }}
+                        >
+                          <X size={13} />
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: C.inkFaint, margin: "6px 0 4px" }}>Zatím žádné zapsané měření.</div>
+              )}
+              <form onSubmit={addMeasurement} style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+                <input
+                  type="date"
+                  required
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={heightForm.date}
+                  onChange={(e) => setHeightForm((f) => ({ ...f, date: e.target.value }))}
+                  style={{ flex: "1 1 120px", padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
+                />
+                <input
+                  type="number"
+                  required
+                  min={80}
+                  max={230}
+                  placeholder="cm"
+                  value={heightForm.cm}
+                  onChange={(e) => setHeightForm((f) => ({ ...f, cm: e.target.value }))}
+                  style={{ width: 64, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
+                />
+                <button
+                  type="submit"
+                  disabled={heightSaving}
+                  style={{ padding: "6px 12px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: heightSaving ? "default" : "pointer", opacity: heightSaving ? 0.7 : 1 }}
+                >
+                  {heightSaving ? "…" : "Přidat"}
+                </button>
+              </form>
+              {heightError && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>{heightError}</div>}
+              <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 8 }}>Měření vidíš jen ty.</div>
             </div>
 
             {marketHistory.length > 1 && (

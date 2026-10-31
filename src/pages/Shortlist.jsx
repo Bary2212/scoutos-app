@@ -37,6 +37,8 @@ export default function Shortlist() {
   const [exporting, setExporting] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [exportNote, setExportNote] = useState("");
+  const [closing, setClosing] = useState(null); // { playerId, fromStage, name, outcome, reason }
+  const [stateFilter, setStateFilter] = useState("all");
 
   useEffect(() => {
     load();
@@ -55,23 +57,64 @@ export default function Shortlist() {
       .finally(() => setLoading(false));
   }
 
-  function moveCard(playerId, fromStage, toStage) {
-    if (fromStage === toStage) return;
+  function moveCard(playerId, fromStage, toStage, closeInfo = null) {
+    if (fromStage === toStage && !closeInfo) return;
     // Optimistická aktualizace — karta se přesune hned, server se dožádá na pozadí.
     setBoard((b) => {
       const card = b[fromStage].find((p) => p.id === playerId);
       if (!card) return b;
+      const updated = {
+        ...card,
+        closedOutcome: closeInfo ? closeInfo.outcome : null,
+        closedReason: closeInfo ? closeInfo.reason : null,
+      };
+      if (fromStage === toStage) {
+        return { ...b, [fromStage]: b[fromStage].map((p) => (p.id === playerId ? updated : p)) };
+      }
       return {
         ...b,
         [fromStage]: b[fromStage].filter((p) => p.id !== playerId),
-        [toStage]: [...b[toStage], card],
+        [toStage]: [...b[toStage], updated],
       };
     });
     apiFetch(`/api/players/${playerId}/stage`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage: toStage }),
-    }).catch(() => load()); // při chybě si radši natáhneme pravdu ze serveru znovu
+      body: JSON.stringify({ stage: toStage, ...(closeInfo ? { outcome: closeInfo.outcome, reason: closeInfo.reason } : {}) }),
+    })
+      .then((res) => {
+        if (!res.ok) load(); // server změnu odmítl — natáhneme pravdu znovu
+      })
+      .catch(() => load()); // při chybě si radši natáhneme pravdu ze serveru znovu
+  }
+
+  // Přesun do "Uzavřeno" nejdřív otevře dialog s výsledkem a důvodem.
+  function requestMove(playerId, fromStage, toStage) {
+    if (toStage === "Uzavřeno" && fromStage !== "Uzavřeno") {
+      const card = board[fromStage].find((p) => p.id === playerId);
+      setClosing({ playerId, fromStage, name: card?.name || "", outcome: "", reason: "" });
+      return;
+    }
+    moveCard(playerId, fromStage, toStage);
+  }
+
+  function editClosing(card) {
+    setClosing({ playerId: card.id, fromStage: "Uzavřeno", name: card.name, outcome: card.closedOutcome || "", reason: card.closedReason || "" });
+  }
+
+  function confirmClosing() {
+    if (!closing || !closing.outcome || !closing.reason.trim()) return;
+    moveCard(closing.playerId, closing.fromStage, "Uzavřeno", { outcome: closing.outcome, reason: closing.reason.trim() });
+    setClosing(null);
+  }
+
+  // Filtr stavu: otevřené (bez "Uzavřeno"), uzavřené pozitivně / negativně.
+  function visibleCards(stage) {
+    const cards = board[stage];
+    if (stateFilter === "open") return stage === "Uzavřeno" ? [] : cards;
+    if (stateFilter === "positive") return stage === "Uzavřeno" ? cards.filter((p) => p.closedOutcome === "positive") : [];
+    if (stateFilter === "negative") return stage === "Uzavřeno" ? cards.filter((p) => p.closedOutcome === "negative") : [];
+    return cards;
   }
 
   function removeCard(playerId, fromStage) {
@@ -99,7 +142,7 @@ export default function Shortlist() {
   }
 
   function toggleSelectStage(stage) {
-    const ids = board[stage].map((p) => p.id);
+    const ids = visibleCards(stage).map((p) => p.id);
     const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
     setSelected((s) => {
       const next = new Set(s);
@@ -115,7 +158,7 @@ export default function Shortlist() {
     try {
       const stageGroups = STAGES.map((stage) => ({
         stage,
-        players: board[stage].filter((p) => selected.has(p.id)),
+        players: visibleCards(stage).filter((p) => selected.has(p.id)),
       })).filter((g) => g.players.length > 0);
       await downloadShortlistExport({ stageGroups, scoutName: user?.name, note: exportNote });
     } catch {
@@ -149,6 +192,19 @@ export default function Shortlist() {
             </span>
           )}
           <div style={{ flex: 1 }} />
+          {!loading && !error && totalCount > 0 && (
+            <select
+              value={stateFilter}
+              onChange={(e) => setStateFilter(e.target.value)}
+              aria-label="Filtr stavu"
+              style={{ padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody, color: C.ink, background: "#fff" }}
+            >
+              <option value="all">Všechny stavy</option>
+              <option value="open">Otevřené</option>
+              <option value="positive">Uzavřeno pozitivně</option>
+              <option value="negative">Uzavřeno negativně</option>
+            </select>
+          )}
           {!loading && !error && selected.size > 0 && (
             <>
               <span style={{ fontSize: 12, color: C.inkSoft }}>Vybráno: {selected.size}</span>
@@ -271,7 +327,7 @@ export default function Shortlist() {
                   const data = e.dataTransfer.getData("text/plain");
                   if (!data) return;
                   const { playerId, fromStage } = JSON.parse(data);
-                  moveCard(playerId, fromStage, stage);
+                  requestMove(playerId, fromStage, stage);
                 }}
                 style={{
                   background: dragOverStage === stage ? C.turfSoft : C.lineSoft,
@@ -285,20 +341,20 @@ export default function Shortlist() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "4px 6px 10px" }}>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>{stage}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {board[stage].length > 0 && (
+                    {visibleCards(stage).length > 0 && (
                       <button
                         onClick={() => toggleSelectStage(stage)}
                         style={{ background: "none", border: "none", color: C.turf, fontSize: 10.5, fontWeight: 600, cursor: "pointer", padding: 0 }}
                       >
-                        {board[stage].every((p) => selected.has(p.id)) ? "Zrušit" : "Vybrat vše"}
+                        {visibleCards(stage).every((p) => selected.has(p.id)) ? "Zrušit" : "Vybrat vše"}
                       </button>
                     )}
-                    <span style={{ fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{board[stage].length}</span>
+                    <span style={{ fontFamily: fontMono, fontSize: 12, color: C.inkFaint }}>{visibleCards(stage).length}</span>
                   </div>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {board[stage].map((p) => (
+                  {visibleCards(stage).map((p) => (
                     <div
                       key={p.id}
                       draggable
@@ -350,15 +406,131 @@ export default function Shortlist() {
                         <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 1 }}>
                           {p.age} let — {p.marketValue.toFixed(1)}M €
                         </div>
+                        {stage === "Uzavřeno" && (
+                          <div style={{ marginTop: 6 }}>
+                            {p.closedOutcome ? (
+                              <>
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    fontSize: 10.5,
+                                    fontWeight: 700,
+                                    padding: "2px 7px",
+                                    borderRadius: 3,
+                                    background: p.closedOutcome === "positive" ? C.turfSoft : C.redSoft,
+                                    color: p.closedOutcome === "positive" ? C.turf : C.red,
+                                  }}
+                                >
+                                  {p.closedOutcome === "positive" ? "Pozitivně" : "Negativně"}
+                                </span>
+                                {p.closedReason && (
+                                  <div
+                                    title={p.closedReason}
+                                    style={{ fontSize: 11, color: C.inkSoft, marginTop: 4, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                                  >
+                                    {p.closedReason}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <span style={{ fontSize: 11, color: C.inkFaint }}>Bez zadaného výsledku</span>
+                            )}
+                            <button
+                              onClick={() => editClosing(p)}
+                              style={{ display: "block", background: "none", border: "none", padding: 0, marginTop: 4, color: C.turf, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                            >
+                              {p.closedOutcome ? "Upravit výsledek" : "Zadat výsledek"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
-                  {board[stage].length === 0 && (
+                  {visibleCards(stage).length === 0 && (
                     <div style={{ fontSize: 11, color: C.inkFaint, textAlign: "center", padding: "16px 4px" }}>Přetáhni sem hráče</div>
                   )}
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {closing && (
+          <div
+            onClick={() => setClosing(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(20,32,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: "#fff", borderRadius: 8, padding: 22, width: "100%", maxWidth: 440, boxShadow: "0 10px 40px rgba(0,0,0,0.2)" }}
+            >
+              <div style={{ fontFamily: fontDisplay, fontSize: 17, fontWeight: 700, marginBottom: 4 }}>Uzavřít hráče</div>
+              <div style={{ fontSize: 13, color: C.inkSoft, marginBottom: 14 }}>{closing.name}</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                {[
+                  ["positive", "Uzavřeno pozitivně", C.turf, C.turfSoft],
+                  ["negative", "Uzavřeno negativně", C.red, C.redSoft],
+                ].map(([value, label, color, soft]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setClosing((c) => ({ ...c, outcome: value }))}
+                    style={{
+                      flex: 1,
+                      padding: "10px 8px",
+                      borderRadius: 5,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      border: `1.5px solid ${closing.outcome === value ? color : C.line}`,
+                      background: closing.outcome === value ? soft : "#fff",
+                      color: closing.outcome === value ? color : C.inkSoft,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <label style={{ display: "block", fontSize: 11, color: C.inkFaint, marginBottom: 5, fontWeight: 600 }}>Důvod *</label>
+              <textarea
+                value={closing.reason}
+                onChange={(e) => setClosing((c) => ({ ...c, reason: e.target.value.slice(0, 500) }))}
+                rows={4}
+                maxLength={500}
+                placeholder="Proč se hráč uzavírá? (např. podepsal u nás, nesplnil fyzické parametry, vybral jiný klub…)"
+                style={{ width: "100%", boxSizing: "border-box", fontFamily: fontBody, fontSize: 13, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 10px", resize: "vertical" }}
+              />
+              <div style={{ fontSize: 10.5, color: C.inkFaint, margin: "3px 0 14px" }}>{closing.reason.length}/500</div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setClosing(null)}
+                  style={{ padding: "8px 14px", background: "#fff", color: C.inkSoft, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Zrušit
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmClosing}
+                  disabled={!closing.outcome || !closing.reason.trim()}
+                  style={{
+                    padding: "8px 14px",
+                    background: C.turf,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 4,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: !closing.outcome || !closing.reason.trim() ? "default" : "pointer",
+                    opacity: !closing.outcome || !closing.reason.trim() ? 0.5 : 1,
+                  }}
+                >
+                  Uzavřít
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
