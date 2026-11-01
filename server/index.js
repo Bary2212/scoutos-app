@@ -1281,6 +1281,9 @@ function playerRowToApi(p, evaluation, viewer) {
     closedOutcome: hasMyEvaluation ? evaluation.closed_outcome ?? null : null,
     closedReason: hasMyEvaluation ? evaluation.closed_reason ?? null : null,
     closedAt: hasMyEvaluation ? evaluation.closed_at ?? null : null,
+    bioAge: hasMyEvaluation && evaluation.bio_age !== null && evaluation.bio_age !== undefined ? Number(evaluation.bio_age) : null,
+    bioAgeDate: hasMyEvaluation ? evaluation.bio_age_date ?? null : null,
+    bioAgeNote: hasMyEvaluation ? evaluation.bio_age_note ?? null : null,
     hasMyEvaluation,
     marketValue: hasMyEvaluation ? Number(evaluation.market_value) : 0,
     minutesTracked: hasMyEvaluation ? evaluation.minutes_tracked : 0,
@@ -1533,6 +1536,28 @@ app.patch("/api/players/:id", async (req, res) => {
     if (req.body.marketValue !== undefined) {
       evSets.push(`market_value = $${j++}`);
       evValues.push(parseMoney(req.body.marketValue));
+    }
+    // Biologický věk (roky, 1 desetinné místo, 5–25), volitelné datum stanovení a poznámka.
+    if (req.body.bioAge !== undefined) {
+      const raw = String(req.body.bioAge ?? "").trim().replace(",", ".");
+      let bio = null;
+      if (raw !== "") {
+        bio = Math.round(Number(raw) * 10) / 10;
+        if (!Number.isFinite(bio) || bio < 5 || bio > 25) {
+          return res.status(400).json({ error: "Biologický věk zadej v letech (5–25), např. 13,4." });
+        }
+      }
+      let bioDate = null;
+      if (bio !== null && String(req.body.bioAgeDate ?? "").trim() !== "") {
+        bioDate = parseMeasureDate(req.body.bioAgeDate);
+        if (!bioDate) return res.status(400).json({ error: "Datum stanovení bio věku je neplatné (nesmí být v budoucnosti)." });
+      }
+      evSets.push(`bio_age = $${j++}`);
+      evValues.push(bio);
+      evSets.push(`bio_age_date = $${j++}`);
+      evValues.push(bioDate);
+      evSets.push(`bio_age_note = $${j++}`);
+      evValues.push(bio === null ? null : String(req.body.bioAgeNote ?? "").trim().slice(0, 120) || null);
     }
     for (const [bodyField, column] of [["fatherHeight", "father_height"], ["motherHeight", "mother_height"]]) {
       if (req.body[bodyField] === undefined) continue;

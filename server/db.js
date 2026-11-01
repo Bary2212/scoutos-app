@@ -186,6 +186,12 @@ ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS closed_outcome TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS closed_reason TEXT;
 ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
 
+-- Biologický věk zapisuje skaut/klub ručně podle vlastního měření nebo testů
+-- (datum stanovení a krátká poznámka o metodě jsou volitelné). Také soukromé u hodnocení.
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS bio_age NUMERIC(4,1);
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS bio_age_date TEXT;
+ALTER TABLE player_evaluations ADD COLUMN IF NOT EXISTS bio_age_note TEXT;
+
 -- Plánovač zápasů klubu: hlavní skaut naplánuje zápas a přidělí na něj skauty.
 CREATE TABLE IF NOT EXISTS club_matches (
   id SERIAL PRIMARY KEY,

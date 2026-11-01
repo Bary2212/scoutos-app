@@ -79,8 +79,13 @@ function scoreColor(score) {
 
 export default function PlayerSearch() {
   const [category, setCategory] = useState("Vše");
-  const [maxAge, setMaxAge] = useState(30);
-  const [minAge, setMinAge] = useState(14);
+  // Prázdné pole = bez omezení (dřív bylo napevno 14–30 a mladší hráči se nezobrazili).
+  const [maxAge, setMaxAge] = useState("");
+  const [minAge, setMinAge] = useState("");
+  const [yearFrom, setYearFrom] = useState("");
+  const [yearTo, setYearTo] = useState("");
+  const [bioFrom, setBioFrom] = useState("");
+  const [bioTo, setBioTo] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("Všichni");
   const [foot, setFoot] = useState("Obě");
@@ -94,7 +99,7 @@ export default function PlayerSearch() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams({ category, maxAge, maxBudget });
+    const params = new URLSearchParams({ category, maxAge: maxAge === "" ? 99 : maxAge, maxBudget });
     apiFetch(`/api/players?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error("Server odpověděl chybou.");
@@ -109,7 +114,11 @@ export default function PlayerSearch() {
   const q = norm(query.trim());
   const visible = results
     .filter((p) => !q || norm(p.name).includes(q) || norm(p.club).includes(q))
-    .filter((p) => (p.age ?? 0) >= minAge)
+    .filter((p) => minAge === "" || (p.age ?? 0) >= Number(minAge))
+    .filter((p) => yearFrom === "" || (p.birthYear != null && p.birthYear >= Number(yearFrom)))
+    .filter((p) => yearTo === "" || (p.birthYear != null && p.birthYear <= Number(yearTo)))
+    .filter((p) => bioFrom === "" || (p.bioAge != null && p.bioAge >= Number(String(bioFrom).replace(",", "."))))
+    .filter((p) => bioTo === "" || (p.bioAge != null && p.bioAge <= Number(String(bioTo).replace(",", "."))))
     .filter((p) => (status === "Moje hodnocení" ? p.hasMyEvaluation : status === "Nehodnocení" ? !p.hasMyEvaluation : true))
     .filter((p) => (foot === "Obě" ? true : norm(p.foot).startsWith(norm(foot).slice(0, 3))))
     .sort((a, b) => {
@@ -154,11 +163,27 @@ export default function PlayerSearch() {
             </div>
             <div>
               <label style={labelStyle}>Věk od</label>
-              <input type="number" value={minAge} onChange={(e) => setMinAge(Number(e.target.value))} style={{ ...inputStyle, width: 70 }} />
+              <input type="number" min={0} placeholder="—" value={minAge} onChange={(e) => setMinAge(e.target.value)} style={{ ...inputStyle, width: 70 }} />
             </div>
             <div>
               <label style={labelStyle}>Věk do</label>
-              <input type="number" value={maxAge} onChange={(e) => setMaxAge(Number(e.target.value))} style={{ ...inputStyle, width: 70 }} />
+              <input type="number" min={0} placeholder="—" value={maxAge} onChange={(e) => setMaxAge(e.target.value)} style={{ ...inputStyle, width: 70 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Ročník od</label>
+              <input type="number" placeholder="2012" value={yearFrom} onChange={(e) => setYearFrom(e.target.value)} style={{ ...inputStyle, width: 80 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Ročník do</label>
+              <input type="number" placeholder="2014" value={yearTo} onChange={(e) => setYearTo(e.target.value)} style={{ ...inputStyle, width: 80 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Bio věk od</label>
+              <input type="number" step="0.1" placeholder="—" value={bioFrom} onChange={(e) => setBioFrom(e.target.value)} style={{ ...inputStyle, width: 74 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Bio věk do</label>
+              <input type="number" step="0.1" placeholder="—" value={bioTo} onChange={(e) => setBioTo(e.target.value)} style={{ ...inputStyle, width: 74 }} />
             </div>
             <div>
               <label style={labelStyle}>Noha</label>
@@ -194,7 +219,7 @@ export default function PlayerSearch() {
         <div style={{ fontSize: 12, color: C.inkFaint, marginBottom: 10 }}>
           {loading
             ? "Načítám…"
-            : `${visible.length} ${visible.length === 1 ? "hráč odpovídá" : "hráčů odpovídá"} filtru${sortBy === "score" ? ", seřazeno podle skóre (nehodnocení na konci)" : ""}`}
+            : `${visible.length} ${visible.length === 1 ? "hráč odpovídá" : "hráčů odpovídá"} filtru${sortBy === "score" ? ", seřazeno podle skóre (nehodnocení na konci)" : ""}${bioFrom !== "" || bioTo !== "" ? ". Hráči bez zadaného bio věku se při tomto filtru nezobrazí." : ""}`}
         </div>
 
         {error && (
@@ -227,7 +252,7 @@ export default function PlayerSearch() {
                         </Link>
                       </div>
                       <div style={{ fontSize: 12, color: C.inkFaint, marginTop: 2 }}>
-                        {p.position} — {p.club} — {p.age} let{p.hasMyEvaluation && p.marketValue > 0 ? ` — ${p.marketValue.toFixed(1)}M €` : ""}
+                        {p.position} — {p.club} — {p.age} let{p.birthYear ? ` (${p.birthYear})` : ""}{p.bioAge != null ? ` — bio ${String(p.bioAge).replace(".", ",")}` : ""}{p.hasMyEvaluation && p.marketValue > 0 ? ` — ${p.marketValue.toFixed(1)}M €` : ""}
                       </div>
                     </div>
                   </div>

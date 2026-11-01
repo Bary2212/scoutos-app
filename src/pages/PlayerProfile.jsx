@@ -51,6 +51,9 @@ const emptyPlayer = {
   motherHeight: null,
   closedOutcome: null,
   closedReason: null,
+  bioAge: null,
+  bioAgeDate: null,
+  bioAgeNote: null,
 };
 
 // ---- Design tokens -------------------------------------------------
@@ -996,6 +999,38 @@ export default function PlayerProfile() {
   // Hráč a jeho základní údaje — natažené z API podle :id v URL. emptyPlayer je
   // jen placeholder, dokud odpověď nedorazí.
   const [player, setPlayer] = useState(emptyPlayer);
+
+  // ---- Biologický věk (zapisuje klub/skaut ručně podle vlastního měření či testů) ----
+  const [bioForm, setBioForm] = useState({ bioAge: "", bioAgeDate: "", bioAgeNote: "" });
+  const [bioSaving, setBioSaving] = useState(false);
+  const [bioError, setBioError] = useState(null);
+  useEffect(() => {
+    setBioForm({
+      bioAge: player.bioAge != null ? String(player.bioAge).replace(".", ",") : "",
+      bioAgeDate: player.bioAgeDate || "",
+      bioAgeNote: player.bioAgeNote || "",
+    });
+  }, [player.bioAge, player.bioAgeDate, player.bioAgeNote]);
+  const saveBioAge = (clear = false) => {
+    setBioSaving(true);
+    setBioError(null);
+    const body = clear ? { bioAge: "" } : bioForm;
+    apiFetch(`/api/players/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Bio věk se nepodařilo uložit.");
+        return data;
+      })
+      .then((updated) =>
+        setPlayer((p) => ({ ...p, bioAge: updated.bioAge ?? null, bioAgeDate: updated.bioAgeDate ?? null, bioAgeNote: updated.bioAgeNote ?? null }))
+      )
+      .catch((err) => setBioError(err.message || "Bio věk se nepodařilo uložit."))
+      .finally(() => setBioSaving(false));
+  };
   const [notFound, setNotFound] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
@@ -1071,6 +1106,10 @@ export default function PlayerProfile() {
           motherHeight: data.motherHeight ?? null,
           closedOutcome: data.closedOutcome || null,
           closedReason: data.closedReason || null,
+          bioAge: data.bioAge ?? null,
+          bioAgeDate: data.bioAgeDate || null,
+          bioAgeNote: data.bioAgeNote || null,
+          birthYear: data.birthYear ?? null,
         });
         setShortlisted(!!data.pipelineStage);
         setBreakdown(data.breakdown || []);
@@ -2280,6 +2319,17 @@ export default function PlayerProfile() {
                 ["Preferovaná noha", player.foot || "—"],
                 ["Výška", player.height ? (/^\d+$/.test(String(player.height).trim()) ? `${String(player.height).trim()} cm` : player.height) : "—"],
                 ...(player.heightMeasuredAt ? [["Měřeno", formatDate(player.heightMeasuredAt)]] : []),
+                ...(player.bioAge != null
+                  ? [
+                      ["Bio věk", `${String(player.bioAge).replace(".", ",")} let`],
+                      ...(player.birthYear
+                        ? (() => {
+                            const diff = Math.round((player.bioAge - (new Date().getFullYear() - player.birthYear)) * 10) / 10;
+                            return [["Bio vs. kal. věk (přibl.)", `${diff > 0 ? "+" : ""}${String(diff).replace(".", ",")} roku`]];
+                          })()
+                        : []),
+                    ]
+                  : []),
                 ["Výška otce", player.fatherHeight ? `${player.fatherHeight} cm` : "—"],
                 ["Výška matky", player.motherHeight ? `${player.motherHeight} cm` : "—"],
               ].map(([label, value]) => (
@@ -2332,7 +2382,7 @@ export default function PlayerProfile() {
                   max={new Date().toISOString().slice(0, 10)}
                   value={heightForm.date}
                   onChange={(e) => setHeightForm((f) => ({ ...f, date: e.target.value }))}
-                  style={{ flex: "1 1 120px", padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
+                  style={{ flex: "0 1 150px", minWidth: 0, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
                 />
                 <input
                   type="number"
@@ -2354,6 +2404,65 @@ export default function PlayerProfile() {
               </form>
               {heightError && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>{heightError}</div>}
               <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 8 }}>Měření vidíš jen ty.</div>
+            </div>
+
+            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 6, padding: 20, marginBottom: 16 }}>
+              <SectionLabel>Biologický věk</SectionLabel>
+              <div style={{ fontSize: 11.5, color: C.inkFaint, margin: "6px 0 10px", lineHeight: 1.45 }}>
+                Zapiš hodnotu z vlastního měření nebo testů. Aplikace ji nedopočítává.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: 8 }}>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="13,4"
+                  aria-label="Biologický věk (roky)"
+                  value={bioForm.bioAge}
+                  onChange={(e) => setBioForm((f) => ({ ...f, bioAge: e.target.value }))}
+                  style={{ padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
+                />
+                <input
+                  type="date"
+                  aria-label="Datum stanovení"
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={bioForm.bioAgeDate}
+                  onChange={(e) => setBioForm((f) => ({ ...f, bioAgeDate: e.target.value }))}
+                  style={{ padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody, minWidth: 0 }}
+                />
+              </div>
+              <input
+                type="text"
+                maxLength={120}
+                placeholder="Metoda / poznámka (volitelné)"
+                aria-label="Poznámka k bio věku"
+                value={bioForm.bioAgeNote}
+                onChange={(e) => setBioForm((f) => ({ ...f, bioAgeNote: e.target.value }))}
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 8, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
+              />
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => saveBioAge(false)}
+                  disabled={bioSaving || !bioForm.bioAge.trim()}
+                  style={{ padding: "6px 12px", background: C.turf, color: "#fff", border: "none", borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: bioSaving || !bioForm.bioAge.trim() ? "default" : "pointer", opacity: bioSaving || !bioForm.bioAge.trim() ? 0.6 : 1 }}
+                >
+                  {bioSaving ? "…" : "Uložit"}
+                </button>
+                {player.bioAge != null && (
+                  <button
+                    type="button"
+                    onClick={() => saveBioAge(true)}
+                    disabled={bioSaving}
+                    style={{ padding: "6px 12px", background: "#fff", color: C.inkSoft, border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    Smazat
+                  </button>
+                )}
+              </div>
+              {bioError && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>{bioError}</div>}
+              <div style={{ fontSize: 10.5, color: C.inkFaint, marginTop: 8 }}>
+                Údaj vidíš jen ty. Rozdíl proti kalendářnímu věku je přibližný, protože známe jen rok narození.
+              </div>
             </div>
 
             {marketHistory.length > 1 && (
