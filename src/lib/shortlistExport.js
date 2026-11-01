@@ -59,11 +59,11 @@ function fmtDate() {
 
 // Sloupce tabulky: [popisek, šířka v mm, zarovnání]
 const COLS = [
-  { label: "Hráč", width: 40, align: "left" },
-  { label: "Pozice", width: 22, align: "left" },
-  { label: "Klub", width: 36, align: "left" },
+  { label: "Hráč", width: 38, align: "left" },
+  { label: "Pozice", width: 30, align: "left" },
+  { label: "Klub", width: 32, align: "left" },
   { label: "Věk", width: 14, align: "right" },
-  { label: "Tržní hodnota", width: 28, align: "right" },
+  { label: "Tržní hodnota", width: 26, align: "right" },
   { label: "Riziko", width: 18, align: "left" },
   { label: "Skóre", width: 20, align: "right" },
 ];
@@ -127,6 +127,12 @@ function truncateToWidth(doc, text, maxWidth) {
   return `${truncated}…`;
 }
 
+// Dlouhé názvy pozic se zkracují, aby se vešly do úzkého sloupce.
+function shortPosition(position) {
+  if (!position) return "—";
+  return position.replace("Defenzivní", "Def.").replace("Ofenzivní", "Of.");
+}
+
 const STRENGTHS_LINE_H = 5;
 
 function drawRow(doc, y, player, zebra) {
@@ -148,7 +154,7 @@ function drawRow(doc, y, player, zebra) {
   const riskIdx = 5; // index sloupce "Riziko" v COLS — vykreslí se barevně zvlášť, ne jako prostý text
   const cells = [
     player.name || "—",
-    player.position || "—",
+    shortPosition(player.position),
     player.club || "—",
     player.age ? String(player.age) : "—",
     player.marketValue ? `${Number(player.marketValue).toFixed(1)}M €` : "—",
@@ -211,7 +217,7 @@ function drawSummaryTiles(doc, y, players) {
 
   const tiles = [
     { label: total === 1 ? "VYBRANÝ HRÁČ" : "VYBRANÝCH HRÁČŮ", value: String(total) },
-    { label: "CELKOVÁ TRŽNÍ HODNOTA", value: `${totalValue.toFixed(1)}M €` },
+    { label: "CELKOVÁ TRŽNÍ HODNOTA", value: totalValue > 0 ? `${totalValue.toFixed(1)}M €` : "—" },
     { label: "VYSOKÉ RIZIKO ZRANĚNÍ", value: String(highRiskCount), color: highRiskCount > 0 ? RED : TURF },
   ];
   const tileW = CONTENT_W / tiles.length;
