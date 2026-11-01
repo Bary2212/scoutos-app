@@ -163,8 +163,9 @@ export default function Shortlist() {
         players: visibleCards(stage).filter((p) => selected.has(p.id)),
       })).filter((g) => g.players.length > 0);
       await downloadShortlistExport({ stageGroups, scoutName: user?.name, note: exportNote });
-    } catch {
-      setError("Export do PDF se nezdařil.");
+    } catch (err) {
+      console.error("Export shortlistu do PDF selhal:", err);
+      setError(`Export do PDF se nezdařil${err?.message ? `: ${err.message}` : "."}`);
     } finally {
       setExporting(false);
     }
