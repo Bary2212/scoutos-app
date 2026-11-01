@@ -90,7 +90,7 @@ export default function PlayerSearch() {
   const [status, setStatus] = useState("Všichni");
   const [foot, setFoot] = useState("Obě");
   const [sortBy, setSortBy] = useState("score");
-  const [maxBudget, setMaxBudget] = useState(3);
+  const [maxBudget, setMaxBudget] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -99,7 +99,7 @@ export default function PlayerSearch() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams({ category, maxAge: maxAge === "" ? 99 : maxAge, maxBudget });
+    const params = new URLSearchParams({ category, maxAge: maxAge === "" ? 99 : maxAge, maxBudget: maxBudget === "" ? 999 : maxBudget });
     apiFetch(`/api/players?${params}`)
       .then((res) => {
         if (!res.ok) throw new Error("Server odpověděl chybou.");
@@ -202,9 +202,11 @@ export default function PlayerSearch() {
               <input
                 type="number"
                 step="0.1"
+                min="0"
                 value={maxBudget}
-                onChange={(e) => setMaxBudget(Number(e.target.value))}
-                style={{ ...inputStyle, width: 90 }}
+                placeholder="bez limitu"
+                onChange={(e) => setMaxBudget(e.target.value === "" ? "" : Number(e.target.value))}
+                style={{ ...inputStyle, width: 110 }}
               />
             </div>
             <div>
