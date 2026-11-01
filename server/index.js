@@ -1044,7 +1044,7 @@ app.get("/api/club", async (req, res) => {
 
       // Přehled hráčů, které kdokoli z klubu ohodnotil / sleduje (jen hlavní skaut, jen jeho klub).
       const { rows: evals } = await pool.query(
-        `SELECT p.id AS player_id, p.name AS player_name, COALESCE(e.position, p.position) AS position, COALESCE(e.club, p.club) AS player_club,
+        `SELECT p.id AS player_id, p.name AS player_name, p.birth_year, p.age, COALESCE(e.position, p.position) AS position, COALESCE(e.club, p.club) AS player_club,
                 u.id AS user_id, u.name AS scout_name,
                 e.pipeline_stage, e.scores, e.analytics, e.updated_at
          FROM player_evaluations e
@@ -1057,7 +1057,7 @@ app.get("/api/club", async (req, res) => {
       const byPlayer = new Map();
       for (const r of evals) {
         if (!byPlayer.has(r.player_id)) {
-          byPlayer.set(r.player_id, { id: r.player_id, name: r.player_name, position: r.position, club: r.player_club, evaluations: [] });
+          byPlayer.set(r.player_id, { id: r.player_id, name: r.player_name, position: r.position, club: r.player_club, birthYear: r.birth_year ?? (r.age ? new Date().getFullYear() - Number(r.age) : null), evaluations: [] });
         }
         const sc = scoresFromAnalytics(r.analytics, r.scores) || {};
         const vals = [sc.pressing, sc.possession, sc.defensive].map(Number).filter(Number.isFinite);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Users, Copy, RefreshCw, UserMinus, Check, Pencil, ShieldCheck, ShieldOff } from "lucide-react";
+import { Users, Copy, RefreshCw, UserMinus, Check, Pencil, ShieldCheck, ShieldOff, Folder, FolderOpen, ChevronRight, ChevronDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
@@ -37,6 +37,8 @@ export default function Club() {
   const [nameDraft, setNameDraft] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [roleBusyId, setRoleBusyId] = useState(null);
+  const [playerView, setPlayerView] = useState("years");
+  const [openYears, setOpenYears] = useState({});
 
   const load = () => {
     setLoading(true);
@@ -130,6 +132,49 @@ export default function Club() {
   };
 
   const isHead = club?.myRole === "hlavni_skaut";
+
+  // Hráči seskupení do složek podle ročníku (nejmladší ročník nahoře, "Bez ročníku" na konci).
+  const yearFolders = (() => {
+    const map = new Map();
+    for (const p of club?.players || []) {
+      const key = p.birthYear ? String(p.birthYear) : "none";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => (a === "none") - (b === "none") || Number(b) - Number(a))
+      .map(([key, players]) => ({ key, label: key === "none" ? "Bez ročníku" : `Ročník ${key}`, players }));
+  })();
+  // Při malém počtu hráčů jsou složky rozbalené, u většího klubu sbalené.
+  const folderOpen = (key) => (openYears[key] !== undefined ? openYears[key] : (club?.players?.length || 0) <= 8);
+  const toggleFolder = (key) => setOpenYears((o) => ({ ...o, [key]: !folderOpen(key) }));
+
+  const renderPlayer = (p) => (
+    <Link
+      key={p.id}
+      to={`/hrac/${p.id}`}
+      style={{ textDecoration: "none", color: C.ink, padding: "10px 12px", border: `1px solid ${C.lineSoft}`, borderRadius: 4, display: "block" }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600 }}>
+        {p.name}{" "}
+        <span style={{ fontSize: 11, fontWeight: 400, color: C.inkFaint }}>
+          {[p.position, p.club].filter(Boolean).join(" • ")}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+        {p.evaluations.map((e) => (
+          <span
+            key={e.userId}
+            style={{ fontSize: 11, background: C.turfSoft, color: C.turf, padding: "3px 8px", borderRadius: 3 }}
+          >
+            {e.scoutName}
+            {e.score != null ? ` • ${e.score}` : ""}
+            {e.stage ? ` • ${e.stage}` : ""}
+          </span>
+        ))}
+      </div>
+    </Link>
+  );
 
   return (
     <div style={{ background: C.bg, minHeight: "calc(100vh - 56px)", fontFamily: fontBody, color: C.ink }}>
@@ -305,34 +350,56 @@ export default function Club() {
                   {!club.players?.length ? (
                     <div style={{ fontSize: 12, color: C.inkFaint }}>Zatím tu nejsou žádní hráči.</div>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {club.players.map((p) => (
-                        <Link
-                          key={p.id}
-                          to={`/hrac/${p.id}`}
-                          style={{ textDecoration: "none", color: C.ink, padding: "10px 12px", border: `1px solid ${C.lineSoft}`, borderRadius: 4, display: "block" }}
-                        >
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>
-                            {p.name}{" "}
-                            <span style={{ fontSize: 11, fontWeight: 400, color: C.inkFaint }}>
-                              {[p.position, p.club].filter(Boolean).join(" • ")}
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                            {p.evaluations.map((e) => (
-                              <span
-                                key={e.userId}
-                                style={{ fontSize: 11, background: C.turfSoft, color: C.turf, padding: "3px 8px", borderRadius: 3 }}
-                              >
-                                {e.scoutName}
-                                {e.score != null ? ` • ${e.score}` : ""}
-                                {e.stage ? ` • ${e.stage}` : ""}
-                              </span>
-                            ))}
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
+                    <>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                        {[["years", "Podle ročníku"], ["alpha", "Abecedně"]].map(([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => setPlayerView(id)}
+                            style={{
+                              padding: "5px 11px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              fontFamily: fontBody,
+                              borderRadius: 4,
+                              cursor: "pointer",
+                              border: `1px solid ${playerView === id ? C.turf : C.line}`,
+                              background: playerView === id ? C.turfSoft : "#fff",
+                              color: playerView === id ? C.turf : C.inkSoft,
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {playerView === "years" ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {yearFolders.map((f) => {
+                            const open = folderOpen(f.key);
+                            return (
+                              <div key={f.key} style={{ border: `1px solid ${C.line}`, borderRadius: 5, overflow: "hidden" }}>
+                                <button
+                                  onClick={() => toggleFolder(f.key)}
+                                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: open ? C.turfSoft : "#FAFBF8", border: "none", cursor: "pointer", fontFamily: fontBody, fontSize: 13, fontWeight: 700, color: C.ink, textAlign: "left" }}
+                                >
+                                  {open ? <ChevronDown size={14} color={C.inkSoft} /> : <ChevronRight size={14} color={C.inkSoft} />}
+                                  {open ? <FolderOpen size={15} color={C.turf} /> : <Folder size={15} color={C.turf} />}
+                                  <span>{f.label}</span>
+                                  <span style={{ fontWeight: 500, color: C.inkFaint, fontSize: 12 }}>({f.players.length})</span>
+                                </button>
+                                {open && (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 10, borderTop: `1px solid ${C.line}` }}>
+                                    {f.players.map(renderPlayer)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{club.players.map(renderPlayer)}</div>
+                      )}
+                    </>
                   )}
                 </div>
               </>
