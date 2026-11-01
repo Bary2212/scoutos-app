@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Gem, ArrowRight, ServerCrash, Info } from "lucide-react";
 import { apiFetch } from "../api.js";
-import { computePlayerScore, STYLES } from "../lib/playerScore.js";
+import { computePlayerScore } from "../lib/playerScore.js";
 
 const C = {
   bg: "#F5F6F1",
@@ -31,33 +31,7 @@ function scoreColor(score) {
   return C.red;
 }
 
-function StyleSwitch({ active, onChange }) {
-  return (
-    <div style={{ display: "inline-flex", border: `1px solid ${C.line}`, borderRadius: 5, overflow: "hidden" }}>
-      {STYLES.map((s) => (
-        <button
-          key={s.id}
-          onClick={() => onChange(s.id)}
-          style={{
-            padding: "6px 12px",
-            fontFamily: fontBody,
-            fontSize: 12,
-            fontWeight: 600,
-            border: "none",
-            cursor: "pointer",
-            color: active === s.id ? "#fff" : C.inkSoft,
-            background: active === s.id ? C.turf : "#fff",
-          }}
-        >
-          {s.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 export default function ValueRadar() {
-  const [style, setStyle] = useState("pressing");
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -78,14 +52,14 @@ export default function ValueRadar() {
   const { ranked, incomplete } = useMemo(() => {
     // Do radaru patří jen hráči, které má přihlášený skaut ve svém sledování.
     const mine = players.filter((p) => p.hasMyEvaluation);
-    const withScore = mine.map((p) => ({ p, ...computePlayerScore(p, style) }));
+    const withScore = mine.map((p) => ({ p, ...computePlayerScore(p) }));
     const eligible = withScore.filter((x) => x.hasAnalytics && x.p.marketValue > 0);
     eligible.sort((a, b) => b.score / b.p.marketValue - a.score / a.p.marketValue);
     const missing = withScore
       .filter((x) => !(x.hasAnalytics && x.p.marketValue > 0))
       .map((x) => ({ p: x.p, needsStats: !x.hasAnalytics, needsValue: !(x.p.marketValue > 0) }));
     return { ranked: eligible, incomplete: missing };
-  }, [players, style]);
+  }, [players]);
 
   const maxRatio = ranked.length > 0 ? ranked[0].score / ranked[0].p.marketValue : 1;
 
@@ -97,10 +71,9 @@ export default function ValueRadar() {
             <Gem size={18} color={C.turf} />
             <h1 style={{ fontFamily: fontDisplay, fontSize: 22, fontWeight: 700, margin: 0 }}>Radar hodnoty</h1>
           </div>
-          <StyleSwitch active={style} onChange={setStyle} />
         </div>
         <p style={{ fontSize: 13, color: C.inkFaint, margin: "0 0 20px 0", maxWidth: 620 }}>
-          Hráči seřazení podle poměru AI skóre k tržní hodnotě — nejvýhodnější podpisy (vysoký výkon za nízkou cenu) nahoře.
+          Hráči seřazení podle poměru celkového skóre k tržní hodnotě — nejvýhodnější podpisy (vysoký výkon za nízkou cenu) nahoře.
         </p>
 
         {error && (

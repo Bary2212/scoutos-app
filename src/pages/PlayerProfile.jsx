@@ -1908,7 +1908,7 @@ export default function PlayerProfile() {
 
                 {mentalProfile && (
                   <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
-                    <SectionLabel>Mentální profil</SectionLabel>
+                    <SectionLabel>Detailní mentální metriky</SectionLabel>
                     <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 10 }}>
                       {[
                         ["Lídrovství", mentalProfile.leadership],
