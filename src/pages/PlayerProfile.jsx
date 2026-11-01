@@ -1447,6 +1447,25 @@ export default function PlayerProfile() {
   const topNegative = ranked[ranked.length - 1] || null;
 
   const riskLabel = { low: "Nízké riziko zranění", medium: "Střední riziko", high: "Vysoké riziko" }[player.riskLevel];
+  const summaryPayload = {
+    player,
+    hasAnalytics,
+    score,
+    topPositive,
+    topNegative,
+    contributions,
+    breakdown,
+    physicalData,
+    technicalMetrics,
+    mentalProfile,
+    strengths,
+    weaknesses,
+    riskLabel,
+    coreItems,
+    coreRatings,
+    potential,
+    scoutName: user?.name || "",
+  };
   const riskColor = { low: C.turf, medium: C.amber, high: C.red }[player.riskLevel];
   const riskBg = { low: C.turfSoft, medium: C.amberSoft, high: C.redSoft }[player.riskLevel];
 
@@ -1558,21 +1577,7 @@ export default function PlayerProfile() {
               {shortlisted ? "Na shortlistě" : "Sledovat"}
             </button>
             <button
-              onClick={handleExportSummary({
-                player,
-                hasAnalytics,
-                score,
-                topPositive,
-                topNegative,
-                contributions,
-                breakdown,
-                physicalData,
-                technicalMetrics,
-                mentalProfile,
-                strengths,
-                weaknesses,
-                riskLabel,
-              })}
+              onClick={handleExportSummary(summaryPayload)}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", fontFamily: fontBody, fontSize: 13, fontWeight: 600, color: C.ink, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 4, cursor: "pointer" }}
             >
               <FileDown size={15} />
@@ -2617,21 +2622,7 @@ export default function PlayerProfile() {
                 </ActionButton>
                 <ActionButton
                   icon={FileDown}
-                  onClick={handleExportSummary({
-                    player,
-                    hasAnalytics,
-                    score,
-                    topPositive,
-                    topNegative,
-                    contributions,
-                    breakdown,
-                    physicalData,
-                    technicalMetrics,
-                    mentalProfile,
-                    strengths,
-                    weaknesses,
-                    riskLabel,
-                  })}
+                  onClick={handleExportSummary(summaryPayload)}
                 >
                   Vytvořit executive summary
                 </ActionButton>

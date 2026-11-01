@@ -131,7 +131,10 @@ const STRENGTHS_LINE_H = 5;
 
 function drawRow(doc, y, player, zebra) {
   const top = Array.isArray(player.topMetrics) ? player.topMetrics : [];
-  const extra = top.length > 0 ? STRENGTHS_LINE_H : 0;
+  const closedText = player.closedOutcome
+    ? `${player.closedOutcome === "positive" ? "Uzavřeno pozitivně" : "Uzavřeno negativně"}${player.closedReason ? `: ${player.closedReason}` : ""}`
+    : "";
+  const extra = (top.length > 0 ? STRENGTHS_LINE_H : 0) + (closedText ? STRENGTHS_LINE_H : 0);
   if (zebra) {
     doc.setFillColor(...TURF_SOFT);
     doc.rect(MARGIN, y, CONTENT_W, 7 + extra, "F");
@@ -140,7 +143,8 @@ function drawRow(doc, y, player, zebra) {
   doc.setFontSize(9);
   doc.setTextColor(...INK);
 
-  const score = player.scores?.pressing ?? null;
+  const scoreValues = player.scores ? Object.values(player.scores).map(Number).filter(Number.isFinite) : [];
+  const score = scoreValues.length ? Math.round(scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length) : null;
   const riskIdx = 5; // index sloupce "Riziko" v COLS — vykreslí se barevně zvlášť, ne jako prostý text
   const cells = [
     player.name || "—",
@@ -170,13 +174,25 @@ function drawRow(doc, y, player, zebra) {
     doc.setFont("Roboto", "normal");
   }
 
+  // Řádek s výsledkem uzavření (pozitivně / negativně + důvod).
+  let extraY = y + 7;
+  if (closedText) {
+    doc.setFont("Roboto", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...(player.closedOutcome === "positive" ? TURF : RED));
+    doc.text(truncateToWidth(doc, closedText, CONTENT_W - 4), MARGIN + 2, extraY + 3.2);
+    doc.setFont("Roboto", "normal");
+    doc.setFontSize(9);
+    extraY += STRENGTHS_LINE_H;
+  }
+
   // Druhý řádek: nejsilnější stránky hráče (nejlépe hodnocené metriky).
   if (top.length > 0) {
     doc.setFont("Roboto", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(...INK_FAINT);
     const text = `Nejsilnější stránky: ${top.map((m) => `${m.label} ${m.rating}/10`).join("  •  ")}`;
-    doc.text(truncateToWidth(doc, text, CONTENT_W - 4), MARGIN + 2, y + 7 + 3.2);
+    doc.text(truncateToWidth(doc, text, CONTENT_W - 4), MARGIN + 2, extraY + 3.2);
     doc.setFontSize(9);
   }
 
