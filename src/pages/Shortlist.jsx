@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ListChecks, X, GripVertical, FileDown, Loader2, Scale, PenLine } from "lucide-react";
+import { ListChecks, X, GripVertical, FileDown, Loader2, Scale, PenLine, Folder, FolderOpen, ChevronRight, ChevronDown } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 import { downloadShortlistExport } from "../lib/shortlistExport.js";
@@ -36,6 +36,8 @@ export default function Shortlist() {
   const [selected, setSelected] = useState(new Set());
   const [exporting, setExporting] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [viewMode, setViewMode] = useState("board");
+  const [openYears, setOpenYears] = useState({});
   const [exportNote, setExportNote] = useState("");
   const [closing, setClosing] = useState(null); // { playerId, fromStage, name, outcome, reason }
   const [stateFilter, setStateFilter] = useState("all");
@@ -172,6 +174,28 @@ export default function Shortlist() {
     navigate(`/porovnani?ids=${Array.from(selected).join(",")}`);
   }
 
+  // Pohled "Podle ročníku": všichni hráči napříč fázemi seskupení do složek.
+  const yearFolders = (() => {
+    if (!board) return [];
+    const map = new Map();
+    for (const stage of STAGES) {
+      for (const p of visibleCards(stage)) {
+        const key = p.birthYear ? String(p.birthYear) : "none";
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push({ ...p, stage });
+      }
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => (a === "none") - (b === "none") || Number(b) - Number(a))
+      .map(([key, players]) => ({
+        key,
+        label: key === "none" ? "Bez ročníku" : `Ročník ${key}`,
+        players: players.sort((x, y) => STAGES.indexOf(x.stage) - STAGES.indexOf(y.stage) || x.name.localeCompare(y.name, "cs")),
+      }));
+  })();
+  const folderOpen = (key) => (openYears[key] !== undefined ? openYears[key] : true);
+  const toggleFolder = (key) => setOpenYears((o) => ({ ...o, [key]: !folderOpen(key) }));
+
   const totalCount = board ? Object.values(board).reduce((sum, arr) => sum + arr.length, 0) : 0;
   const COMPARE_MAX = 6;
   const compareDisabled = selected.size < 2 || selected.size > COMPARE_MAX;
@@ -192,6 +216,29 @@ export default function Shortlist() {
             </span>
           )}
           <div style={{ flex: 1 }} />
+          {!loading && !error && totalCount > 0 && (
+            <div style={{ display: "flex", gap: 6 }}>
+              {[["board", "Kanban"], ["years", "Podle ročníku"]].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setViewMode(id)}
+                  style={{
+                    padding: "7px 11px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: fontBody,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    border: `1px solid ${viewMode === id ? C.turf : C.line}`,
+                    background: viewMode === id ? C.turfSoft : "#fff",
+                    color: viewMode === id ? C.turf : C.inkSoft,
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {!loading && !error && totalCount > 0 && (
             <select
               value={stateFilter}
@@ -311,7 +358,65 @@ export default function Shortlist() {
           <div style={{ background: C.redSoft, color: C.red, padding: "10px 14px", borderRadius: 6, fontSize: 13 }}>{error}</div>
         )}
 
-        {board && (
+        {board && viewMode === "years" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 820 }}>
+            {yearFolders.length === 0 && <div style={{ fontSize: 13, color: C.inkFaint }}>Žádní hráči pro zvolený filtr.</div>}
+            {yearFolders.map((f) => {
+              const open = folderOpen(f.key);
+              return (
+                <div key={f.key} style={{ border: `1px solid ${C.line}`, borderRadius: 6, overflow: "hidden", background: C.panel }}>
+                  <button
+                    onClick={() => toggleFolder(f.key)}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: open ? C.turfSoft : "#FAFBF8", border: "none", cursor: "pointer", fontFamily: fontBody, fontSize: 13, fontWeight: 700, color: C.ink, textAlign: "left" }}
+                  >
+                    {open ? <ChevronDown size={14} color={C.inkSoft} /> : <ChevronRight size={14} color={C.inkSoft} />}
+                    {open ? <FolderOpen size={15} color={C.turf} /> : <Folder size={15} color={C.turf} />}
+                    <span>{f.label}</span>
+                    <span style={{ fontWeight: 500, color: C.inkFaint, fontSize: 12 }}>({f.players.length})</span>
+                  </button>
+                  {open && (
+                    <div style={{ display: "flex", flexDirection: "column", borderTop: `1px solid ${C.line}` }}>
+                      {f.players.map((p) => (
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderBottom: `1px solid ${C.lineSoft}` }}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(p.id)}
+                            onChange={() => toggleSelect(p.id)}
+                            style={{ flexShrink: 0, cursor: "pointer", accentColor: C.turf }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Link to={`/hrac/${p.id}`} style={{ fontSize: 13, fontWeight: 600, color: C.ink, textDecoration: "none" }}>
+                              {p.name}
+                            </Link>
+                            <div style={{ fontSize: 11, color: C.inkFaint, marginTop: 2 }}>
+                              {[p.position, p.club].filter(Boolean).join(" — ")}
+                              {p.marketValue > 0 ? ` • ${p.marketValue.toFixed(1)}M €` : ""}
+                            </div>
+                            {p.stage === "Uzavřeno" && p.closedReason && (
+                              <div style={{ fontSize: 11, color: C.inkSoft, marginTop: 3 }}>{p.closedReason}</div>
+                            )}
+                          </div>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 3, background: C.lineSoft, color: C.inkSoft, flexShrink: 0 }}>
+                            {p.stage === "Uzavřeno" && p.closedOutcome ? `Uzavřeno ${p.closedOutcome === "positive" ? "pozitivně" : "negativně"}` : p.stage}
+                          </span>
+                          <button
+                            onClick={() => removeCard(p.id, p.stage)}
+                            title="Odebrat ze shortlistu"
+                            style={{ background: "none", border: "none", cursor: "pointer", color: C.inkFaint, padding: 2, flexShrink: 0 }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {board && viewMode === "board" && (
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(220px, 1fr))`, gap: 14, overflowX: "auto" }}>
             {STAGES.map((stage) => (
               <div

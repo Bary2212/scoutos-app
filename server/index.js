@@ -2182,6 +2182,7 @@ app.get("/api/shortlist", async (req, res) => {
     for (const r of rows) {
       board[r.stage]?.push({
         id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club,
+        birthYear: r.birth_year ?? (r.age ? new Date().getFullYear() - Number(r.age) : null),
         marketValue: Number(r.market_value), scores: r.scores, riskLevel: r.risk_level,
         topMetrics: topMetricsFromBreakdown(r.analytics?.breakdown),
         closedOutcome: r.stage === "Uzavřeno" ? r.closed_outcome ?? null : null,
