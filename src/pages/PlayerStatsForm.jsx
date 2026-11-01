@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Loader2, Plus, X } from "lucide-react";
 import { apiFetch } from "../api.js";
-import { groupsForPosition, RATING_LABELS, ratingFromPercentile, percentileFromRating, TECHNICAL_FIELDS, PHYSICAL_FIELDS, MENTAL_FIELDS } from "../data/scoutMetrics.js";
+import { groupsForPosition, coreItemsForPosition, POTENTIAL_FIELD, RATING_LABELS, ratingFromPercentile, percentileFromRating, TECHNICAL_FIELDS, PHYSICAL_FIELDS, MENTAL_FIELDS } from "../data/scoutMetrics.js";
 
 const C = {
   bg: "#F5F6F1",
@@ -56,6 +56,8 @@ export default function PlayerStatsForm() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const [coreState, setCoreState] = useState({});
+  const [potentialState, setPotentialState] = useState({ checked: false, value: 5 });
   const [ratings, setRatings] = useState({});
   const [customMetrics, setCustomMetrics] = useState([]);
   const [newCustomLabel, setNewCustomLabel] = useState("");
@@ -79,6 +81,10 @@ export default function PlayerStatsForm() {
       .then((data) => {
         setPlayer(data);
         const groups = groupsForPosition(data.position);
+        setCoreState(
+          Object.fromEntries(Object.entries(data.coreRatings || {}).map(([k, v]) => [k, { checked: true, value: Number(v) }]))
+        );
+        setPotentialState(data.potential ? { checked: true, value: Number(data.potential) } : { checked: false, value: 5 });
         setRatings(initialRatings(data.breakdown, groups));
         setCustomMetrics(initialCustom(data.breakdown, groups));
         setTechnical(data.technicalMetrics || {});
@@ -109,6 +115,15 @@ export default function PlayerStatsForm() {
   }
 
   const groups = groupsForPosition(player.position);
+
+  const coreItems = coreItemsForPosition(player.position);
+  const toggleCore = (itemId) => {
+    setCoreState((c) => {
+      const current = c[itemId];
+      return { ...c, [itemId]: { checked: !current?.checked, value: current?.value ?? 5 } };
+    });
+  };
+  const setCoreValue = (itemId, value) => setCoreState((c) => ({ ...c, [itemId]: { checked: true, value: Number(value) } }));
 
   const toggleMetric = (metricId) => {
     setRatings((r) => {
@@ -183,6 +198,8 @@ export default function PlayerStatsForm() {
       Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== "" && v !== undefined && v !== null).map(([k, v]) => [k, Number(v)]));
 
     const payload = {
+      coreRatings: Object.fromEntries(Object.entries(coreState).filter(([, v]) => v.checked).map(([k, v]) => [k, v.value])),
+      potential: potentialState.checked ? potentialState.value : null,
       breakdown,
       technicalMetrics: Object.keys(technical).length > 0 ? cleanNumeric(technical) : undefined,
       physicalData: Object.keys(physical).length > 0 ? cleanNumeric(physical) : undefined,
@@ -225,10 +242,66 @@ export default function PlayerStatsForm() {
           Zadat statistiky — {player.name}
         </h1>
         <p style={{ fontSize: 13, color: C.inkFaint, margin: "0 0 24px 0" }}>
-          Vyplň jen to, co jsi u hráče při zápase reálně stihl posoudit. Neoznačené metriky se do profilu neuloží.
+          Vyplň jen to, co jsi u hráče reálně stihl posoudit. Neoznačené položky se do profilu neuloží.
         </p>
 
         <form onSubmit={handleSubmit}>
+          <section style={sectionStyle}>
+            <h2 style={sectionTitleStyle}>Základní hodnocení</h2>
+            <p style={sectionHintStyle}>
+              Deset položek na škále 1–10 (5 = průměr hráčů stejného ročníku). Z nich vznikne hlavní graf a celkové skóre hráče.
+              Hodnoť vůči věkové skupině, ne vůči dospělým.
+            </p>
+            {[
+              ["fotbal", "Fotbal"],
+              ["mimo", "Mimo fotbal, ale pro fotbal důležité"],
+            ].map(([groupId, groupLabel]) => (
+              <div key={groupId} style={{ marginBottom: groupId === "fotbal" ? 14 : 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.inkFaint, margin: "4px 0 2px" }}>{groupLabel}</div>
+                {coreItems
+                  .filter((item) => item.group === groupId)
+                  .map((item) => {
+                    const state = coreState[item.id];
+                    const checked = !!state?.checked;
+                    return (
+                      <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: `1px solid ${C.lineSoft}` }}>
+                        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: 1, cursor: "pointer", fontSize: 13.5 }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleCore(item.id)} style={{ marginTop: 3 }} />
+                          <span>
+                            {item.label}
+                            <span style={{ display: "block", fontSize: 11.5, color: C.inkFaint, marginTop: 2, lineHeight: 1.4 }}>{item.hint}</span>
+                          </span>
+                        </label>
+                        <RatingControl value={state?.value ?? 5} disabled={!checked} onChange={(v) => setCoreValue(item.id, v)} />
+                      </div>
+                    );
+                  })}
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0 0", marginTop: 12, borderTop: `2px solid ${C.line}` }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, flex: 1, cursor: "pointer", fontSize: 13.5 }}>
+                <input
+                  type="checkbox"
+                  checked={potentialState.checked}
+                  onChange={() => setPotentialState((p) => ({ ...p, checked: !p.checked }))}
+                  style={{ marginTop: 3 }}
+                />
+                <span>
+                  {POTENTIAL_FIELD.label}
+                  <span style={{ display: "block", fontSize: 11.5, color: C.inkFaint, marginTop: 2, lineHeight: 1.4 }}>{POTENTIAL_FIELD.hint}</span>
+                </span>
+              </label>
+              <RatingControl value={potentialState.value} disabled={!potentialState.checked} onChange={(v) => setPotentialState({ checked: true, value: Number(v) })} />
+            </div>
+          </section>
+
+          <div style={{ margin: "26px 0 14px" }}>
+            <h2 style={{ fontFamily: fontDisplay, fontSize: 18, fontWeight: 700, margin: "0 0 4px 0" }}>Podrobné statistiky (volitelné)</h2>
+            <p style={{ fontSize: 12.5, color: C.inkFaint, margin: 0, lineHeight: 1.5 }}>
+              Chceš-li hráče rozebrat do detailu, vyplň i tyto metriky. Vznikne z nich druhý, menší graf podle kategorií.
+            </p>
+          </div>
+
           {groups.map((group) => (
             <section key={group.id} style={sectionStyle}>
               <h2 style={sectionTitleStyle}>{group.label}</h2>

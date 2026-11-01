@@ -137,6 +137,51 @@ export function groupsForPosition(position) {
   });
 }
 
+
+// ---- Základních 10 hodnocení ------------------------------------------
+// Rychlé hodnocení 1–10 (5 = průměr hráčů stejného ročníku). 6 fotbalových
+// položek pokrývá celý výkon, 4 jsou mimofotbalové, ale pro fotbal důležité.
+// Ukládá se do analytics.coreRatings pod id níže (server má stejný seznam).
+// U brankáře se mění jen popisky, uložená data jsou stejná.
+export const CORE_RATINGS = [
+  { id: "fyzicke", group: "fotbal", label: "Fyzické předpoklady", short: "Fyzika",
+    hint: "Rychlost, síla, vytrvalost, koordinace, výbušnost.",
+    gk: { label: "Fyzické předpoklady", short: "Fyzika", hint: "Výška, dosah, výbušnost, mrštnost." } },
+  { id: "hra_s_micem", group: "fotbal", label: "Hra s míčem", short: "S míčem",
+    hint: "Technika, první dotek, přihrávky, vedení míče, střelba.",
+    gk: { label: "Hra nohama", short: "Hra nohama", hint: "Rozehrávka, přihrávky pod tlakem." } },
+  { id: "hra_bez_mice", group: "fotbal", label: "Hra bez míče", short: "Bez míče",
+    hint: "Pohyb a uvolňování, nabízení se, náběhy, postavení v útoku.",
+    gk: { label: "Postavení a hra za obranou", short: "Postavení", hint: "Pozice v brance, vybíhání, čtení situací, hra mimo bránu." } },
+  { id: "branceni", group: "fotbal", label: "Bránění", short: "Bránění",
+    hint: "Souboje 1v1, odebírání míče, pressing, krytí prostoru.",
+    gk: { label: "Chytání a zákroky", short: "Zákroky", hint: "Střely, reflexy, 1 na 1, centry a hra ve vzduchu." } },
+  { id: "prechodova_faze", group: "fotbal", label: "Přechodová fáze", short: "Přechod",
+    hint: "Rychlost přepnutí z obrany do útoku a naopak.",
+    gk: { label: "Rychlé zahájení útoku", short: "Zahájení", hint: "Výhoz, vykop, rychlá rozehrávka po zákroku." } },
+  { id: "herni_inteligence", group: "fotbal", label: "Herní inteligence", short: "Herní IQ",
+    hint: "Čtení hry, rozhodování, předvídání, taktická disciplína.",
+    gk: { label: "Herní inteligence", short: "Herní IQ", hint: "Rozhodování a klid pod tlakem, čtení hry." } },
+  { id: "charakter", group: "mimo", label: "Charakter", short: "Charakter",
+    hint: "Motivace, vyrovnanost, zvládání neúspěchu, soutěživost." },
+  { id: "komunikace", group: "mimo", label: "Komunikace", short: "Komunikace",
+    hint: "Řeč těla, organizace spoluhráčů, vztah ke spoluhráčům a trenérům.",
+    gk: { label: "Komunikace", short: "Komunikace", hint: "Včetně řízení obrany a organizace spoluhráčů před sebou." } },
+  { id: "rodinne_zazemi", group: "mimo", label: "Rodinné zázemí", short: "Rodina", private: true,
+    hint: "Podpora rodiny, spolehlivost, prostředí. Vidíš jen ty, není ve sdíleném odkazu ani v PDF." },
+  { id: "ucenlivost", group: "mimo", label: "Učenlivost a přístup k tréninku", short: "Učenlivost",
+    hint: "Ochota se učit, pracovitost, reakce na kritiku." },
+];
+
+// Potenciál je celkový úsudek skauta; do skóre z deseti hodnocení se nepočítá.
+export const POTENTIAL_FIELD = { id: "potential", label: "Potenciál", hint: "Kam se podle tebe může hráč dostat. Do celkového skóre se nepočítá." };
+
+// Položky s popisky podle pozice (brankář má vlastní názvy u fotbalových položek).
+export function coreItemsForPosition(position) {
+  const isGoalkeeper = position === "Brankář";
+  return CORE_RATINGS.map((item) => ({ ...item, ...(isGoalkeeper && item.gk ? item.gk : {}) }));
+}
+
 // ---- Fixní bloky, které profil hráče zobrazuje samostatně -----------
 
 export const TECHNICAL_FIELDS = [

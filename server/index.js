@@ -333,7 +333,11 @@ app.get("/api/public/profile/:token", async (req, res) => {
       pipeline_stage: null,
       analytics: row.analytics,
     };
-    res.json(playerRowToApi(player, evaluation));
+    const publicPlayer = playerRowToApi(player, evaluation);
+    if (publicPlayer.coreRatings) {
+      publicPlayer.coreRatings = Object.fromEntries(Object.entries(publicPlayer.coreRatings).filter(([k]) => !PRIVATE_CORE_IDS.includes(k)));
+    }
+    res.json(publicPlayer);
   } catch (err) {
     res.status(500).json({ error: "Nepodařilo se načíst profil.", detail: err.message });
   }
@@ -1214,9 +1218,43 @@ function manualScoreFromBreakdown(breakdown) {
   return Math.max(0, Math.min(100, Math.round((62 * 3 + sum) / (3 + breakdown.length))));
 }
 
+// Základních 10 hodnocení (1–10): id musí odpovídat katalogu na frontendu (src/data/scoutMetrics.js).
+const CORE_RATING_IDS = [
+  "fyzicke", "hra_s_micem", "hra_bez_mice", "branceni", "prechodova_faze",
+  "herni_inteligence", "charakter", "komunikace", "rodinne_zazemi", "ucenlivost",
+];
+// Rodinné zázemí je citlivé — nikdy se neposílá ven přes veřejný sdílený odkaz.
+const PRIVATE_CORE_IDS = ["rodinne_zazemi"];
+
+// Vyčistí vstup: jen známá id a celá čísla 1–10. Neplatné hodnoty se zahodí.
+function sanitizeCoreRatings(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const id of CORE_RATING_IDS) {
+    const n = Math.round(Number(raw[id]));
+    if (raw[id] !== null && raw[id] !== undefined && raw[id] !== "" && Number.isFinite(n) && n >= 1 && n <= 10) out[id] = n;
+  }
+  return out;
+}
+
+// Skóre z deseti základních hodnocení: stejný zeslabený průměr jako u podrobných
+// metrik (rating 1–10 -> percentil rating*10-5), ať jsou obě skóre srovnatelná.
+function coreScoreFromRatings(core) {
+  const vals = Object.values(sanitizeCoreRatings(core));
+  if (vals.length === 0) return null;
+  const sum = vals.reduce((acc, r) => acc + (r * 10 - 5), 0);
+  return Math.max(0, Math.min(100, Math.round((62 * 3 + sum) / (3 + vals.length))));
+}
+
+// Základní hodnocení mají přednost; bez nich se použijí podrobné statistiky jako dřív.
+function manualScoreFromAnalytics(analytics) {
+  const core = coreScoreFromRatings(analytics?.coreRatings);
+  return core !== null ? core : manualScoreFromBreakdown(analytics?.breakdown);
+}
+
 function scoresFromAnalytics(analytics, storedScores) {
   if (!analytics || analytics.styleContributions) return storedScores;
-  const s = manualScoreFromBreakdown(analytics.breakdown);
+  const s = manualScoreFromAnalytics(analytics);
   return s === null ? storedScores : { pressing: s, possession: s, defensive: s };
 }
 
@@ -1640,7 +1678,7 @@ app.delete("/api/players/:id/height-log/:entryId", async (req, res) => {
 // stránky, skóre, riziko...) do MÉHO řádku v player_evaluations. Pokud ještě
 // neexistuje, založí se. Klíče, které nejsou v těle požadavku, zůstanou
 // zachované (jsonb merge u analytiky), takže se dá zadávat/upravovat postupně.
-const ANALYTICS_FIELDS = ["breakdown", "physicalData", "technicalMetrics", "mentalProfile", "strengths", "weaknesses", "careerHistory", "clips"];
+const ANALYTICS_FIELDS = ["breakdown", "physicalData", "technicalMetrics", "mentalProfile", "strengths", "weaknesses", "careerHistory", "clips", "coreRatings", "potential"];
 const EVAL_SCALAR_FIELDS = { marketValue: "market_value", riskLevel: "risk_level", minutesTracked: "minutes_tracked" };
 const EVAL_JSON_FIELDS = { scores: "scores", reason: "reason" };
 
@@ -1661,6 +1699,12 @@ app.patch("/api/players/:id/analytics", async (req, res) => {
     for (const field of ANALYTICS_FIELDS) {
       if (req.body[field] !== undefined) analyticsPatch[field] = req.body[field];
     }
+    if (analyticsPatch.coreRatings !== undefined) analyticsPatch.coreRatings = sanitizeCoreRatings(analyticsPatch.coreRatings);
+    if (analyticsPatch.potential !== undefined) {
+      const pot = Math.round(Number(analyticsPatch.potential));
+      analyticsPatch.potential = analyticsPatch.potential !== null && analyticsPatch.potential !== "" && Number.isFinite(pot) && pot >= 1 && pot <= 10 ? pot : null;
+    }
+    const currentEvaluation = await getMyEvaluation(playerId, req.user.id);
 
     const sets = ["updated_at = now()"];
     const values = [];
@@ -1686,8 +1730,8 @@ app.patch("/api/players/:id/analytics", async (req, res) => {
     }
 
     // Po změně metrik přepočítáme uložené skóre, aby ho viděly i ostatní stránky.
-    if (analyticsPatch.breakdown !== undefined && req.body.scores === undefined) {
-      const newScore = manualScoreFromBreakdown(analyticsPatch.breakdown);
+    if ((analyticsPatch.breakdown !== undefined || analyticsPatch.coreRatings !== undefined) && req.body.scores === undefined) {
+      const newScore = manualScoreFromAnalytics({ ...(currentEvaluation?.analytics || {}), ...analyticsPatch });
       const s = newScore === null ? EMPTY_SCORES : { pressing: newScore, possession: newScore, defensive: newScore };
       sets.push(`scores = $${i++}::jsonb`);
       values.push(JSON.stringify(s));
@@ -2236,10 +2280,10 @@ const PORT = process.env.PORT || 4000;
 // Jednorázové dopočtení uložených skóre u hráčů s ručními metrikami (idempotentní).
 async function backfillManualScores() {
   const { rows } = await pool.query(
-    "SELECT id, analytics, scores FROM player_evaluations WHERE jsonb_array_length(COALESCE(analytics->'breakdown', '[]'::jsonb)) > 0 AND analytics->'styleContributions' IS NULL"
+    "SELECT id, analytics, scores FROM player_evaluations WHERE (jsonb_array_length(COALESCE(analytics->'breakdown', '[]'::jsonb)) > 0 OR analytics->'coreRatings' IS NOT NULL) AND analytics->'styleContributions' IS NULL"
   );
   for (const r of rows) {
-    const sc = manualScoreFromBreakdown(r.analytics.breakdown);
+    const sc = manualScoreFromAnalytics(r.analytics);
     if (sc === null) continue;
     if (r.scores?.pressing === sc && r.scores?.possession === sc && r.scores?.defensive === sc) continue;
     await pool.query("UPDATE player_evaluations SET scores = $1::jsonb WHERE id = $2", [JSON.stringify({ pressing: sc, possession: sc, defensive: sc }), r.id]);

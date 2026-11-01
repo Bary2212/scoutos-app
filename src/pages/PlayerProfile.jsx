@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
-import { ratingFromPercentile, ratingLabel, groupForMetric, METRIC_GROUPS } from "../data/scoutMetrics.js";
+import { ratingFromPercentile, ratingLabel, groupForMetric, METRIC_GROUPS, coreItemsForPosition, POTENTIAL_FIELD } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
 import { useAuth } from "../AuthContext.jsx";
 
@@ -522,6 +522,65 @@ function StyleSwitch({ active, onChange }) {
     </div>
   );
 }
+
+// Pavučinový (radar) graf: každá osa = jedna položka, hodnota 1–10. Nehodnocená
+// položka (value === null) se kreslí ve středu a popisek zešedne.
+function RadarChart({ axes, size = 360, compact = false }) {
+  const n = axes.length;
+  const cx = size / 2;
+  const cy = size / 2;
+  const labelPad = compact ? 84 : 100;
+  const R = size / 2 - labelPad;
+  const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  const point = (i, v) => [cx + Math.cos(angle(i)) * R * (v / 10), cy + Math.sin(angle(i)) * R * (v / 10)];
+  // Obrys spojuje jen hodnocené osy, nehodnocené se přeskočí (netáhnou obrys do středu).
+  const ratedPoints = axes.map((a, i) => (a.value === null ? null : point(i, a.value))).filter(Boolean);
+  const outline = ratedPoints.map((pt) => pt.join(",")).join(" ");
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ maxWidth: "100%", height: "auto", flexShrink: 0 }} role="img" aria-label="Radar hodnocení">
+      {[2, 4, 6, 8, 10].map((ring) => (
+        <polygon
+          key={ring}
+          points={axes.map((_, i) => point(i, ring).join(",")).join(" ")}
+          fill="none"
+          stroke={ring === 5 || ring === 10 ? C.line : C.lineSoft}
+          strokeWidth={1}
+        />
+      ))}
+      {axes.map((_, i) => {
+        const [x, y] = point(i, 10);
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={C.lineSoft} strokeWidth={1} />;
+      })}
+      {ratedPoints.length >= 3 ? (
+        <polygon points={outline} fill={C.turf} fillOpacity={0.22} stroke={C.turf} strokeWidth={2} strokeLinejoin="round" />
+      ) : ratedPoints.length === 2 ? (
+        <polyline points={outline} fill="none" stroke={C.turf} strokeWidth={2} />
+      ) : null}
+      {axes.map((a, i) => {
+        if (a.value === null) return null;
+        const [x, y] = point(i, a.value);
+        return <circle key={i} cx={x} cy={y} r={3.5} fill={C.turf} />;
+      })}
+      {axes.map((a, i) => {
+        const [lx, ly] = point(i, 10);
+        const dx = Math.cos(angle(i));
+        const dy = Math.sin(angle(i));
+        const x = lx + dx * 12;
+        const y = ly + dy * 12 + (dy > 0.3 ? 8 : dy < -0.3 ? -2 : 4);
+        const anchor = dx > 0.25 ? "start" : dx < -0.25 ? "end" : "middle";
+        return (
+          <text key={i} x={x} y={y} textAnchor={anchor} fontSize={compact ? 10 : 11.5} fontFamily={fontBody} fontWeight={600} fill={a.value === null ? C.inkFaint : C.ink}>
+            {a.label}
+            <tspan fontFamily={fontMono} fontWeight={700} fill={a.value === null ? C.inkFaint : C.turf}> {a.value === null ? "–" : Number.isInteger(a.value) ? a.value : a.value.toFixed(1)}</tspan>
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Krátké názvy kategorií podrobných statistik pro popisky malého radaru.
+const GROUP_SHORT = { s_micem: "S míčem", bez_mice: "Bez míče", obrana: "Bránění", prechody: "Přechody", brankar: "Brankář", fyzicno: "Fyzika", mentalita: "Mentalita", vlastni: "Vlastní", ostatni: "Ostatní" };
 
 function MarketValueChart({ data }) {
   const width = 232;
@@ -1043,6 +1102,8 @@ export default function PlayerProfile() {
   // hráče bez analytiky) zůstávají prázdná a příslušné sekce se pak skrývají,
   // místo aby appka ukazovala cizí (demo) data.
   const [breakdown, setBreakdown] = useState([]);
+  const [coreRatings, setCoreRatings] = useState({});
+  const [potential, setPotential] = useState(null);
   const [styleContributions, setStyleContributions] = useState(null);
   const [clips, setClips] = useState([]);
   const [timeline, setTimeline] = useState([]);
@@ -1113,6 +1174,8 @@ export default function PlayerProfile() {
         });
         setShortlisted(!!data.pipelineStage);
         setBreakdown(data.breakdown || []);
+        setCoreRatings(data.coreRatings || {});
+        setPotential(data.potential ?? null);
         setStyleContributions(data.styleContributions || null);
         setClips(data.clips || []);
         setTimeline(data.careerHistory || []);
@@ -1357,7 +1420,7 @@ export default function PlayerProfile() {
   // i bez toho — kontribuce se pak dopočítá přímo z percentilu dané metriky.
   // Výpočet je sdílený s Radarem hodnoty (src/lib/playerScore.js), aby obě
   // stránky počítaly skóre stejně.
-  const { hasAnalytics, score, contributions } = computePlayerScore({ breakdown, styleContributions }, style);
+  const { hasAnalytics, score, contributions } = computePlayerScore({ breakdown, styleContributions, coreRatings }, style);
 
   const ranked = hasAnalytics ? [...breakdown].sort((a, b) => contributions[b.id] - contributions[a.id]) : [];
 
@@ -1374,6 +1437,12 @@ export default function PlayerProfile() {
       .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
       .map((g) => ({ ...g, avg: g.stats.reduce((sum, s) => sum + ratingFromPercentile(s.percentile), 0) / g.stats.length }));
   })();
+  const coreItems = coreItemsForPosition(player.position);
+  // Hodnocené základní položky seřazené od nejlepší (pro popis skóre).
+  const coreRated = coreItems
+    .filter((it) => coreRatings[it.id] != null)
+    .map((it) => ({ label: it.label, value: Number(coreRatings[it.id]) }))
+    .sort((a, b) => b.value - a.value);
   const topPositive = ranked[0] || null;
   const topNegative = ranked[ranked.length - 1] || null;
 
@@ -1660,7 +1729,18 @@ export default function PlayerProfile() {
                       <ScoreDial value={score} />
                       <div style={{ flex: 1, minWidth: 240 }}>
                         <p style={{ fontSize: 14, color: C.inkSoft, lineHeight: 1.6, margin: 0 }}>
-                          {styleContributions ? (
+                          {!styleContributions && coreRated.length > 0 ? (
+                            <>
+                              Skóre vychází z průměru základních hodnocení (škála 1–10, 5 = průměr hráčů stejného ročníku).
+                              {coreRated.length >= 2 && coreRated[0].value > 5 && (
+                                <> Nahoru ho táhne hlavně <strong style={{ color: C.ink }}>{coreRated[0].label.toLowerCase()}</strong> ({coreRated[0].value}/10)</>
+                              )}
+                              {coreRated.length >= 2 && coreRated[coreRated.length - 1].value < 5 && (
+                                <>{coreRated[0].value > 5 ? ", dolů" : " Dolů"} ho stahuje <strong style={{ color: C.ink }}>{coreRated[coreRated.length - 1].label.toLowerCase()}</strong> ({coreRated[coreRated.length - 1].value}/10)</>
+                              )}
+                              {coreRated.length >= 2 && (coreRated[0].value > 5 || coreRated[coreRated.length - 1].value < 5) && "."}
+                            </>
+                          ) : styleContributions ? (
                             <>
                               Při zvolené filozofii (<strong style={{ color: C.ink }}>{STYLES.find((s) => s.id === style).label}</strong>) táhne skóre nahoru hlavně{" "}
                               <strong style={{ color: C.ink }}>{topPositive.label.toLowerCase()}</strong> (<span style={{ color: C.turf }}>+{contributions[topPositive.id]}</span>),
@@ -1684,6 +1764,41 @@ export default function PlayerProfile() {
                       </div>
                     </div>
 
+                    {coreItems.some((it) => coreRatings[it.id] != null) && (
+                      <div style={{ marginBottom: 24, paddingTop: 20, borderTop: `1px solid ${C.lineSoft}` }}>
+                        <SectionLabel>Základní hodnocení</SectionLabel>
+                        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center", justifyContent: "center" }}>
+                          <RadarChart axes={coreItems.map((it) => ({ label: it.short, value: coreRatings[it.id] ?? null }))} size={440} />
+                          <div style={{ flex: "1 1 220px", minWidth: 220 }}>
+                            {[
+                              ["fotbal", "Fotbal"],
+                              ["mimo", "Mimo fotbal"],
+                            ].map(([gid, glabel]) => (
+                              <div key={gid} style={{ marginBottom: 12 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: C.inkFaint, marginBottom: 2 }}>{glabel}</div>
+                                {coreItems
+                                  .filter((it) => it.group === gid)
+                                  .map((it) => (
+                                    <div key={it.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                                      <span style={{ color: C.inkSoft }}>{it.label}</span>
+                                      <span style={{ fontFamily: fontMono, fontWeight: 700, color: coreRatings[it.id] != null ? C.ink : C.inkFaint }}>
+                                        {coreRatings[it.id] != null ? `${coreRatings[it.id]}/10` : "–"}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            ))}
+                            {potential != null && (
+                              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 10px", background: C.turfSoft, borderRadius: 4, fontSize: 13 }}>
+                                <span style={{ color: C.turf, fontWeight: 600 }}>{POTENTIAL_FIELD.label}</span>
+                                <span style={{ fontFamily: fontMono, fontWeight: 700, color: C.turf }}>{potential}/10</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {scoreHistoryRatios.length > 0 && (
                       <div style={{ marginBottom: 24 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
@@ -1701,7 +1816,14 @@ export default function PlayerProfile() {
                       </div>
                     )}
 
-                    <SectionLabel>Rozklad skóre po metrikách</SectionLabel>
+                    {breakdown.length > 0 && (
+                    <>
+                    <SectionLabel>Podrobné statistiky po metrikách</SectionLabel>
+                    {breakdownGroups.length >= 3 && (
+                      <div style={{ display: "flex", justifyContent: "center", margin: "4px 0 10px" }}>
+                        <RadarChart compact size={340} axes={breakdownGroups.map((g) => ({ label: GROUP_SHORT[g.id] || g.label, value: Math.round(g.avg * 10) / 10 }))} />
+                      </div>
+                    )}
                     <p style={{ fontSize: 12, color: C.inkFaint, margin: "0 0 14px", lineHeight: 1.5 }}>
                       Číslo v záhlaví kategorie je průměr jejích metrik. Číslo u pruhu je hodnocení 1–10 (5 = průměr, 10 = elita). Šipka vpravo ukazuje, jak moc je metrika nad průměrem (nahoru) nebo pod ním (dolů).
                     </p>
@@ -1732,6 +1854,8 @@ export default function PlayerProfile() {
                         </div>
                       ))}
                     </div>
+                    </>
+                    )}
                   </>
                 )}
 
