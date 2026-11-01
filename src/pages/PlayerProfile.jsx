@@ -962,6 +962,9 @@ function riskLabelText(risk) {
 
 // ---- Main component -----------------------------------------------------
 
+// Výška v cm s desetinnou čárkou (168.5 -> "168,5").
+const fmtCm = (v) => String(v).replace(".", ",");
+
 export default function PlayerProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -2446,7 +2449,7 @@ export default function PlayerProfile() {
                 ["Kontrakt do", (player.contractUntil && String(player.contractUntil).trim() !== "0" ? player.contractUntil : "—")],
                 ["Agent", (player.agent && String(player.agent).trim() !== "0" ? player.agent : "—")],
                 ["Preferovaná noha", player.foot || "—"],
-                ["Výška", player.height ? (/^\d+$/.test(String(player.height).trim()) ? `${String(player.height).trim()} cm` : player.height) : "—"],
+                ["Výška", player.height ? (/^\d+([.,]\d+)?$/.test(String(player.height).trim()) ? `${fmtCm(String(player.height).trim())} cm` : player.height) : "—"],
                 ...(player.heightMeasuredAt ? [["Měřeno", formatDate(player.heightMeasuredAt)]] : []),
                 ...(player.bioAge != null
                   ? [
@@ -2483,11 +2486,11 @@ export default function PlayerProfile() {
                     <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
                       <span style={{ color: C.inkFaint }}>{formatDate(m.date)}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontWeight: idx === 0 ? 700 : 500, color: C.ink }}>{m.cm} cm</span>
+                        <span style={{ fontWeight: idx === 0 ? 700 : 500, color: C.ink }}>{fmtCm(m.cm)} cm</span>
                         {player.heightLog[idx + 1] && (
                           <span style={{ fontSize: 11, color: C.inkFaint }}>
                             {m.cm - player.heightLog[idx + 1].cm >= 0 ? "+" : ""}
-                            {m.cm - player.heightLog[idx + 1].cm} cm
+                            {fmtCm(Math.round((m.cm - player.heightLog[idx + 1].cm) * 10) / 10)} cm
                           </span>
                         )}
                         <button
@@ -2518,10 +2521,11 @@ export default function PlayerProfile() {
                   required
                   min={80}
                   max={230}
+                  step="0.1"
                   placeholder="cm"
                   value={heightForm.cm}
                   onChange={(e) => setHeightForm((f) => ({ ...f, cm: e.target.value }))}
-                  style={{ width: 64, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
+                  style={{ width: 76, padding: "6px 8px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 12, fontFamily: fontBody }}
                 />
                 <button
                   type="submit"

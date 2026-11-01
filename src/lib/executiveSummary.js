@@ -219,7 +219,7 @@ export async function downloadExecutiveSummary({
 
   const heightClean = clean(player.height);
   const heightText = heightClean
-    ? `${heightClean} cm${fmtIsoDate(player.heightMeasuredAt) ? ` (měřeno ${fmtIsoDate(player.heightMeasuredAt)})` : ""}`
+    ? `${heightClean.replace(".", ",")} cm${fmtIsoDate(player.heightMeasuredAt) ? ` (měřeno ${fmtIsoDate(player.heightMeasuredAt)})` : ""}`
     : "—";
   const bioClean = player.bioAge != null && player.bioAge !== "" ? Number(player.bioAge) : null;
   let bioText = "—";

@@ -1341,15 +1341,15 @@ function normalizeHeightLog(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((m) => m && /^\d{4}-\d{2}-\d{2}$/.test(String(m.date)) && Number.isFinite(Number(m.cm)))
-    .map((m) => ({ id: String(m.id), date: String(m.date), cm: Math.round(Number(m.cm)) }))
+    .map((m) => ({ id: String(m.id), date: String(m.date), cm: Math.round(Number(m.cm) * 10) / 10 }))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
-// Výška v cm z formuláře: "181", "181 cm", "181,5" -> celé číslo 80–230, jinak null.
+// Výška v cm z formuláře: "181", "181 cm", "181,5" -> číslo 80–230 zaokrouhlené na 0,1 cm, jinak null.
 function parseHeightCm(value) {
   const m = String(value ?? "").replace(",", ".").match(/\d+(\.\d+)?/);
   if (!m) return null;
-  const cm = Math.round(Number(m[0]));
+  const cm = Math.round(Number(m[0]) * 10) / 10;
   return cm >= 80 && cm <= 230 ? cm : null;
 }
 
