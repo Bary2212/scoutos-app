@@ -77,6 +77,9 @@ ALTER TABLE clubs ADD COLUMN IF NOT EXISTS plan_updated_at TIMESTAMPTZ;
 -- Placené kluby (plan = 'paid') se zkouškou neomezují.
 ALTER TABLE clubs ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
 
+-- Kdy byl klubu odeslán e-mail s upozorněním na blížící se konec zkušební doby.
+ALTER TABLE clubs ADD COLUMN IF NOT EXISTS trial_reminder_sent_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   first_name TEXT,

@@ -343,6 +343,84 @@ app.get("/api/public/profile/:token", async (req, res) => {
   }
 });
 
+// ---------- UPOZORNĚNÍ NA KONEC ZKUŠEBNÍ DOBY ----------
+// Klubům, kterým zkouška končí do TRIAL_REMINDER_DAYS dní, se jednou pošle e-mail
+// hlavním skautům. Demo tým, majitel appky a placené kluby se přeskakují. Po
+// prodloužení zkoušky (admin) se upozornění může poslat znovu.
+const TRIAL_REMINDER_DAYS = 3;
+let trialReminderRunning = false;
+
+async function sendTrialReminders() {
+  if (trialReminderRunning) return { sent: 0, clubs: 0 };
+  trialReminderRunning = true;
+  let sent = 0;
+  let clubsCount = 0;
+  try {
+    const { rows: clubs } = await pool.query(
+      `SELECT id, name, trial_ends_at FROM clubs
+       WHERE plan <> 'paid'
+         AND trial_ends_at IS NOT NULL
+         AND trial_ends_at > now()
+         AND trial_ends_at <= now() + ($1 || ' days')::interval
+         AND (trial_reminder_sent_at IS NULL OR trial_reminder_sent_at < trial_ends_at - ($1 || ' days')::interval)`,
+      [String(TRIAL_REMINDER_DAYS)]
+    );
+    const appUrl = (process.env.APP_URL || "").replace(/\/$/, "");
+    for (const club of clubs) {
+      const { rows: heads } = await pool.query(
+        "SELECT name, email, is_demo_team FROM users WHERE club_id = $1 AND role = 'hlavni_skaut' AND verified = true",
+        [club.id]
+      );
+      const recipients = heads.filter((u) => !u.is_demo_team && !isAdminEmail(u.email));
+      if (recipients.length === 0) continue;
+      const endsAt = new Date(club.trial_ends_at);
+      const endText = endsAt.toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Prague" });
+      const daysLeft = Math.max(1, Math.ceil((endsAt.getTime() - Date.now()) / 86400000));
+      const daysText = daysLeft === 1 ? "1 den" : daysLeft >= 2 && daysLeft <= 4 ? `${daysLeft} dny` : `${daysLeft} dní`;
+      let delivered = 0;
+      for (const u of recipients) {
+        try {
+          await sendMail({
+            to: u.email,
+            subject: `Zkušební doba ScoutOS končí za ${daysText}`,
+            html: `
+              <p>Ahoj ${escHtml(String(u.name || "").split(" ")[0])},</p>
+              <p>zkušební doba klubu <strong>${escHtml(club.name)}</strong> ve ScoutOS končí <strong>${escHtml(endText)}</strong> (zbývá ${daysText}).</p>
+              <p>Po jejím skončení zůstanou všechna tvoje data zachovaná a půjdou si prohlížet, ale nepůjde do appky nic přidávat ani upravovat.</p>
+              <p>Chceš ve ScoutOS pokračovat? Napiš nám na <a href="mailto:info@baranstudio.cz">info@baranstudio.cz</a> a domluvíme další postup. Budeme rádi i za zpětnou vazbu, co ti v appce chybí nebo co ti nevyhovuje.</p>
+              ${appUrl ? `<p><a href="${escHtml(appUrl)}">Otevřít ScoutOS</a></p>` : ""}
+              <p>Tým ScoutOS</p>
+            `,
+          });
+          delivered++;
+          sent++;
+        } catch (mailErr) {
+          console.error(`Upozornění na konec zkoušky se nepodařilo odeslat (${u.email}):`, mailErr.message);
+        }
+      }
+      if (delivered > 0) {
+        clubsCount++;
+        await pool.query("UPDATE clubs SET trial_reminder_sent_at = now() WHERE id = $1", [club.id]);
+      }
+    }
+  } catch (err) {
+    console.error("Kontrola konce zkušební doby selhala:", err.message);
+  } finally {
+    trialReminderRunning = false;
+  }
+  return { sent, clubs: clubsCount };
+}
+
+// Pro externí plánovač (např. cron-job.org), kdyby server na Renderu usínal:
+// GET /api/cron/trial-reminders?key=<CRON_SECRET>. Bez nastaveného CRON_SECRET je vypnutý.
+app.get("/api/cron/trial-reminders", async (req, res) => {
+  const secret = process.env.CRON_SECRET || "";
+  const key = String(req.query.key || "");
+  const ok = !!secret && key.length === secret.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(secret));
+  if (!ok) return res.status(403).json({ error: "Neplatný klíč." });
+  res.json(await sendTrialReminders());
+});
+
 // ---------- OCHRANNÝ MIDDLEWARE — všechno pod /api definované NÍŽE už vyžaduje platný token ----------
 app.use("/api", (req, res, next) => {
   const authHeader = req.headers.authorization || "";
@@ -2295,6 +2373,9 @@ initDb()
   .then(() => backfillManualScores().catch((e) => console.error("Dopočet skóre selhal:", e.message)))
   .then(() => {
     app.listen(PORT, () => console.log(`ScoutOS backend běží na portu ${PORT}`));
+    // Kontrola konce zkušebních dob: po startu a pak každou hodinu.
+    setTimeout(() => sendTrialReminders(), 30 * 1000);
+    setInterval(() => sendTrialReminders(), 60 * 60 * 1000);
   })
   .catch((err) => {
     console.error("Nepodařilo se inicializovat databázi:", err);
