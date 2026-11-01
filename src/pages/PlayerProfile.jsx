@@ -963,6 +963,9 @@ function riskLabelText(risk) {
 
 // ---- Main component -----------------------------------------------------
 
+// Staré uložené hodnoty "0" se ve formuláři úprav ukážou jako prázdné pole.
+const blankIfZero = (v) => (v == null || String(v).trim() === "0" ? "" : v);
+
 // Výška v cm s desetinnou čárkou (168.5 -> "168,5").
 const fmtCm = (v) => String(v).replace(".", ",");
 
@@ -1371,10 +1374,10 @@ export default function PlayerProfile() {
       club: player.club || "",
       league: player.league || "",
       marketValue: player.marketValue || "",
-      contractUntil: player.contractUntil || "",
-      agent: player.agent || "",
-      foot: player.foot || "",
-      height: player.height || "",
+      contractUntil: blankIfZero(player.contractUntil),
+      agent: blankIfZero(player.agent),
+      foot: blankIfZero(player.foot),
+      height: blankIfZero(player.height),
       fatherHeight: player.fatherHeight ?? "",
       motherHeight: player.motherHeight ?? "",
     });
