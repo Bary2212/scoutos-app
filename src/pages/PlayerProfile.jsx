@@ -29,6 +29,7 @@ import { apiFetch } from "../api.js";
 import { downloadExecutiveSummary } from "../lib/executiveSummary.js";
 import { ratingFromPercentile, ratingLabel, groupForMetric, METRIC_GROUPS, coreItemsForPosition, POTENTIAL_FIELD } from "../data/scoutMetrics.js";
 import { computePlayerScore } from "../lib/playerScore.js";
+import { computeInjuryRisk, injuryRiskLabel, injuryRiskShort } from "../lib/injuryRisk.js";
 import { useAuth } from "../AuthContext.jsx";
 
 // Výchozí (demo) profil hráče — použije se jako placeholder, dokud nedorazí
@@ -1295,7 +1296,10 @@ export default function PlayerProfile() {
     if (!newHistoryEntry.date.trim() || !newHistoryEntry.label.trim()) return;
     const entry = {
       id: Date.now(),
-      date: newHistoryEntry.date.trim(),
+      // Zranění se zadává kalendářem (RRRR-MM-DD) a ukládá jako "d.m.rrrr", aby se z něj dalo počítat riziko.
+      date: newHistoryEntry.category === "injury" && /^\d{4}-\d{2}-\d{2}$/.test(newHistoryEntry.date.trim())
+        ? newHistoryEntry.date.trim().split("-").reverse().map(Number).join(".")
+        : newHistoryEntry.date.trim(),
       category: newHistoryEntry.category,
       label: newHistoryEntry.label.trim(),
       ...(newHistoryEntry.category === "injury" && newHistoryEntry.days ? { days: Number(newHistoryEntry.days) || 0 } : {}),
@@ -1449,7 +1453,9 @@ export default function PlayerProfile() {
   const topPositive = ranked[0] || null;
   const topNegative = ranked[ranked.length - 1] || null;
 
-  const riskLabel = { low: "Nízké riziko zranění", medium: "Střední riziko", high: "Vysoké riziko" }[player.riskLevel];
+  // Riziko zranění se počítá z Kariérní historie (zranění za posledních 12 měsíců).
+  const injuryRiskInfo = computeInjuryRisk(timeline);
+  const riskLabel = injuryRiskLabel(injuryRiskInfo);
   const summaryPayload = {
     player,
     hasAnalytics,
@@ -1463,14 +1469,14 @@ export default function PlayerProfile() {
     mentalProfile,
     strengths,
     weaknesses,
-    riskLabel,
+    riskLabel: injuryRiskShort(injuryRiskInfo),
     coreItems,
     coreRatings,
     potential,
     scoutName: user?.name || "",
   };
-  const riskColor = { low: C.turf, medium: C.amber, high: C.red }[player.riskLevel];
-  const riskBg = { low: C.turfSoft, medium: C.amberSoft, high: C.redSoft }[player.riskLevel];
+  const riskColor = { low: C.turf, medium: C.amber, high: C.red }[injuryRiskInfo?.level];
+  const riskBg = { low: C.turfSoft, medium: C.amberSoft, high: C.redSoft }[injuryRiskInfo?.level];
 
   // Záložky se skládají dynamicky — prázdné sekce appka nenabízí.
   const tabs = ["Statistiky", "Video", "Reporty skautů", "Diskuze", "Historie", "Podobní hráči"];
@@ -1543,9 +1549,10 @@ export default function PlayerProfile() {
                 <span style={{ fontSize: 13, color: C.inkSoft }}>{player.position}</span>
                 <Divider />
                 <span style={{ fontSize: 13, color: C.inkSoft }}>{player.age} let</span>
-                {hasAnalytics && (
+                {riskLabel && (
                 <button
-                  onClick={() => injuryRisk && setRiskExpanded((v) => !v)}
+                  onClick={() => (injuryRisk ? setRiskExpanded((v) => !v) : setActiveTab("Historie"))}
+                  title={injuryRisk ? undefined : "Zobrazit historii zranění"}
                   style={{
                     marginLeft: 6,
                     display: "inline-flex",
@@ -1558,7 +1565,7 @@ export default function PlayerProfile() {
                     color: riskColor,
                     background: riskBg,
                     border: "none",
-                    cursor: injuryRisk ? "pointer" : "default",
+                    cursor: "pointer",
                   }}
                 >
                   {riskLabel}
@@ -2306,7 +2313,7 @@ export default function PlayerProfile() {
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
                     <select
                       value={newHistoryEntry.category}
-                      onChange={(e) => setNewHistoryEntry((f) => ({ ...f, category: e.target.value }))}
+                      onChange={(e) => setNewHistoryEntry((f) => ({ ...f, category: e.target.value, date: f.category === "injury" || e.target.value === "injury" ? "" : f.date }))}
                       style={{ padding: "8px 10px", border: `1px solid ${C.line}`, borderRadius: 4, fontSize: 13, fontFamily: fontBody }}
                     >
                       <option value="transfer">Přestup</option>
@@ -2314,7 +2321,8 @@ export default function PlayerProfile() {
                       <option value="milestone">Milník</option>
                     </select>
                     <input
-                      type="text"
+                      type={newHistoryEntry.category === "injury" ? "date" : "text"}
+                      max={newHistoryEntry.category === "injury" ? new Date().toISOString().slice(0, 10) : undefined}
                       placeholder="Datum (např. Srpen 2026)"
                       value={newHistoryEntry.date}
                       onChange={(e) => setNewHistoryEntry((f) => ({ ...f, date: e.target.value }))}

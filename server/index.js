@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import dns from "dns";
 import crypto from "crypto";
 import { pool, initDb, createClub, generateUniqueInviteCode } from "./db.js";
+import { computeInjuryRisk } from "./injuryRisk.js";
 
 // Render (free plán) má problémy se směrováním odchozích IPv6 spojení —
 // způsobovalo to jak ENETUNREACH chybu ke Gmailu, tak timeouty k Brevo API.
@@ -1336,6 +1337,12 @@ function scoresFromAnalytics(analytics, storedScores) {
   return s === null ? storedScores : { pressing: s, possession: s, defensive: s };
 }
 
+// Úroveň rizika zranění se počítá z Kariérní historie (zranění za posledních 12 měsíců);
+// bez zapsaných zranění je null.
+function riskFromAnalytics(analytics) {
+  return computeInjuryRisk(analytics?.careerHistory)?.level ?? null;
+}
+
 // Historie měření výšky: pole { id, date: "YYYY-MM-DD", cm }, nejnovější měření první.
 function normalizeHeightLog(raw) {
   if (!Array.isArray(raw)) return [];
@@ -1403,7 +1410,7 @@ function playerRowToApi(p, evaluation, viewer) {
     hasMyEvaluation,
     marketValue: hasMyEvaluation ? Number(evaluation.market_value) : 0,
     minutesTracked: hasMyEvaluation ? evaluation.minutes_tracked : 0,
-    riskLevel: hasMyEvaluation ? evaluation.risk_level : "low",
+    riskLevel: hasMyEvaluation ? riskFromAnalytics(evaluation.analytics) : null,
     scores: hasMyEvaluation ? scoresFromAnalytics(evaluation.analytics, evaluation.scores) : EMPTY_SCORES,
     reason: hasMyEvaluation ? evaluation.reason : EMPTY_REASON,
     pipelineStage: hasMyEvaluation ? evaluation.pipeline_stage : null,
@@ -1877,7 +1884,7 @@ app.get("/api/players/:id/evaluations", async (req, res) => {
         scoutName: r.scout_name,
         isMe: r.user_id === req.user.id,
         marketValue: Number(r.market_value),
-        riskLevel: r.risk_level,
+        riskLevel: riskFromAnalytics(r.analytics),
         scores: scoresFromAnalytics(r.analytics, r.scores),
         reason: r.reason,
         updatedAt: r.updated_at,
@@ -1892,7 +1899,7 @@ app.get("/api/players/:id/evaluations", async (req, res) => {
 });
 
 function evaluationToApi(e) {
-  return { marketValue: Number(e.market_value), riskLevel: e.risk_level, scores: e.scores, reason: e.reason, updatedAt: e.updated_at };
+  return { marketValue: Number(e.market_value), riskLevel: riskFromAnalytics(e.analytics), scores: e.scores, reason: e.reason, updatedAt: e.updated_at };
 }
 
 // Viditelnost reportů: vlastní + reporty skautů ze stejného klubu. Starší reporty
@@ -2261,7 +2268,7 @@ app.get("/api/shortlist", async (req, res) => {
       board[r.stage]?.push({
         id: r.id, name: r.name, position: r.position, age: playerAge(r), club: r.club,
         birthYear: r.birth_year ?? (r.age ? new Date().getFullYear() - Number(r.age) : null),
-        marketValue: Number(r.market_value), scores: r.scores, riskLevel: r.risk_level,
+        marketValue: Number(r.market_value), scores: r.scores, riskLevel: riskFromAnalytics(r.analytics),
         topMetrics: topMetricsFromBreakdown(r.analytics?.breakdown),
         closedOutcome: r.stage === "Uzavřeno" ? r.closed_outcome ?? null : null,
         closedReason: r.stage === "Uzavřeno" ? r.closed_reason ?? null : null,
